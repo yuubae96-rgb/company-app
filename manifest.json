@@ -1,0 +1,20 @@
+{
+  "name": "社内アプリ",
+  "short_name": "社内アプリ",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#eef0f2",
+  "theme_color": "#1f2328",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
