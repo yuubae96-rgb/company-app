@@ -17,6 +17,33 @@ let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=nul
 function once(el,event){return new Promise(res=>el.addEventListener(event,res,{once:true}))}
 frame.addEventListener('load',()=>{
   const w=frame.contentWindow,d=w.document;
+
+  // 「2」と同じ参考URL欄を旧YouTube動画作成にも追加
+  const topic=d.getElementById('topic');
+  if(topic&&!d.getElementById('referenceUrls')){
+    const box=d.createElement('div');
+    box.innerHTML='<label style="display:block;font-size:12px;font-weight:800;color:#6d7788;margin:10px 0 6px">参考URL（任意・最大5件）</label><textarea id="referenceUrls" placeholder="WebサイトやYouTubeのURLを1行に1件貼り付け" style="width:100%;min-height:82px;border:1px solid #dce1e8;border-radius:11px;padding:11px;font-size:16px;background:#fff;color:#172033;line-height:1.55"></textarea><div style="font-size:12px;color:#6d7788;margin-top:5px;line-height:1.55">公開Webページ・YouTubeを参考に、丸写しせず動画用に再構成します。</div>';
+    const chips=topic.parentElement.querySelector('.chips');
+    (chips||topic).insertAdjacentElement('afterend',box);
+  }
+  // 既存の構成生成API呼び出しに参考URLを自動で付ける
+  if(typeof w.api==='function'&&!w.__referenceUrlApiWrapped){
+    const originalApi=w.api;
+    w.api=async function(body,...args){
+      if(body&&body.action==='generateScript'){
+        const el=d.getElementById('referenceUrls');
+        const urls=(el?.value||'').split(/\n/).map(x=>x.trim()).filter(x=>/^https?:\/\//i.test(x)).slice(0,5);
+        body={...body,referenceUrls:urls};
+        if(urls.length){
+          const st=d.getElementById('status');
+          if(st)st.textContent='参考資料を読み取り、AIが動画構成を作成中…';
+        }
+      }
+      return originalApi.call(w,body,...args);
+    };
+    w.__referenceUrlApiWrapped=true;
+  }
+
   const btn=d.getElementById('exportVideo');
   if(!btn)return;
   let cancel=d.getElementById('cancelExportVideo');
