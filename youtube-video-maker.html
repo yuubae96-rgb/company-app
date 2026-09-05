@@ -15,8 +15,9 @@ let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=nul
 function once(el,event){return new Promise(res=>el.addEventListener(event,res,{once:true}))}
 frame.addEventListener('load',()=>{
   const w=frame.contentWindow,d=w.document;
+  let protagonistReference='',styleReference='';
   const styleEl=d.createElement('style');
-  styleEl.textContent='.yt-short .pic,.yt-short .previewScreen{aspect-ratio:9/16!important;max-width:360px;margin-left:auto;margin-right:auto}.yt-short .sceneLabel,.yt-short .previewTitle{max-width:84%;font-size:clamp(14px,4vw,22px)}.yt-short .subtitle{left:7%;right:7%;bottom:8%;font-size:clamp(18px,5vw,28px)}.yt-short #completedVideo{max-width:360px;margin-left:auto!important;margin-right:auto!important}.yt-short #downloadVideo{max-width:360px;margin-left:auto;margin-right:auto}';
+  styleEl.textContent='.yt-short .pic,.yt-short .previewScreen{aspect-ratio:9/16!important;max-width:360px;margin-left:auto;margin-right:auto}.yt-short .sceneLabel,.yt-short .previewTitle{max-width:84%;font-size:clamp(14px,4vw,22px)}.yt-short .subtitle{left:7%;right:7%;bottom:8%;font-size:clamp(18px,5vw,28px)}.yt-short #completedVideo{max-width:360px;margin-left:auto!important;margin-right:auto!important}.yt-short #downloadVideo{max-width:360px;margin-left:auto;margin-right:auto}.refGrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:10px}.refCard{border:1px solid #dce1e8;border-radius:11px;padding:10px;background:#f8f9fc}.refCard label{margin:0 0 6px!important}.refCard input[type=file]{font-size:12px;padding:7px}.refPreview{display:none;width:100%;max-height:120px;object-fit:contain;background:#e9edf4;border-radius:8px;margin-top:7px}.refState{font-size:11px;color:#6d7788;line-height:1.45;margin-top:5px}.setProtagonistRef{background:#fff7df!important;border-color:#e6c974!important}@media(max-width:560px){.refGrid{grid-template-columns:1fr}}';
   d.head.appendChild(styleEl);
 
   const topic=d.getElementById('topic');
@@ -45,6 +46,30 @@ frame.addEventListener('load',()=>{
   };
   format.addEventListener('change',applyFormat);applyFormat();
 
+  async function imageFileToDataUrl(file){
+    const original=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result||''));r.onerror=rej;r.readAsDataURL(file)});
+    return await new Promise(resolve=>{const im=new w.Image();im.onload=()=>{try{const max=1200,scale=Math.min(1,max/Math.max(im.naturalWidth||im.width,im.naturalHeight||im.height)),c=d.createElement('canvas');c.width=Math.max(1,Math.round((im.naturalWidth||im.width)*scale));c.height=Math.max(1,Math.round((im.naturalHeight||im.height)*scale));c.getContext('2d').drawImage(im,0,0,c.width,c.height);resolve(c.toDataURL('image/jpeg',.88))}catch(_){resolve(original)}};im.onerror=()=>resolve(original);im.src=original});
+  }
+  function setProtagonistReference(src,label='主人公の基準画像を設定しました。'){
+    protagonistReference=src||'';
+    const img=d.getElementById('protagonistRefPreview'),st=d.getElementById('protagonistRefState');
+    if(img){img.src=protagonistReference;img.style.display=protagonistReference?'block':'none'}
+    if(st)st.textContent=protagonistReference?label:'未設定';
+  }
+  function setStyleReference(src){
+    styleReference=src||'';
+    const img=d.getElementById('styleRefPreview'),st=d.getElementById('styleRefState');
+    if(img){img.src=styleReference;img.style.display=styleReference?'block':'none'}
+    if(st)st.textContent=styleReference?'画風の基準画像を設定しました。':'未設定';
+  }
+  if(!d.getElementById('referenceImageControls')){
+    const refs=d.createElement('div');refs.id='referenceImageControls';refs.className='refGrid';
+    refs.innerHTML='<div class="refCard"><label>主人公・キャラクターの基準画像（任意）</label><input id="protagonistRefInput" type="file" accept="image/*"><img id="protagonistRefPreview" class="refPreview"><div id="protagonistRefState" class="refState">顔・髪型・体格などを全シーンで揃える時に使います。</div></div><div class="refCard"><label>画風の基準画像（任意）</label><input id="styleRefInput" type="file" accept="image/*"><img id="styleRefPreview" class="refPreview"><div id="styleRefState" class="refState">色・陰影・質感・描き込みの雰囲気を揃える時に使います。</div></div>';
+    const fmt=d.getElementById('videoFormat');(fmt?.parentElement||topic).insertAdjacentElement('afterend',refs);
+    d.getElementById('protagonistRefInput').onchange=async e=>{const f=e.target.files?.[0];if(f)setProtagonistReference(await imageFileToDataUrl(f))};
+    d.getElementById('styleRefInput').onchange=async e=>{const f=e.target.files?.[0];if(f)setStyleReference(await imageFileToDataUrl(f))};
+  }
+
   if(typeof w.api==='function'&&!w.__referenceUrlApiWrapped){
     const originalApi=w.api;
     w.api=async function(body,...args){
@@ -54,12 +79,22 @@ frame.addEventListener('load',()=>{
         body={...body,referenceUrls:urls,aspectRatio:getAspect()};
         if(urls.length){const st=d.getElementById('status');if(st)st.textContent='参考資料を読み取り、AIが動画構成を作成中…'}
       }else if(body&&body.action==='generateImage'){
-        body={...body,aspectRatio:getAspect()};
+        body={...body,aspectRatio:getAspect(),protagonistReference,styleReference};
       }
       return originalApi.call(w,body,...args);
     };
     w.__referenceUrlApiWrapped=true;
   }
+
+  function installSceneReferenceButtons(){
+    [...d.querySelectorAll('.scene')].forEach((scene,i)=>{
+      if(scene.querySelector('.setProtagonistRef'))return;
+      const b=d.createElement('button');b.type='button';b.className='subbtn setProtagonistRef';b.textContent='この画像を主人公の基準にする';
+      b.onclick=()=>{const src=d.getElementById(`pic${i}`)?.dataset.image||'';if(!src){const st=d.getElementById(`audioState${i}`);if(st)st.textContent='先にこのシーンのAI画像を作ってください。';return}setProtagonistReference(src,`SCENE ${i+1} の画像を主人公の基準にしました。`)};
+      const toolbar=scene.querySelector('.toolbar:last-of-type');(toolbar||scene).appendChild(b);
+    });
+  }
+  const result=d.getElementById('result');if(result){new MutationObserver(installSceneReferenceButtons).observe(result,{childList:true,subtree:true});installSceneReferenceButtons()}
 
   const btn=d.getElementById('exportVideo');
   if(!btn)return;
