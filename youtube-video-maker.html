@@ -13,53 +13,79 @@ html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}ifr
 <iframe id="app" src="youtube-video-maker-core.html" allow="microphone;camera"></iframe>
 <script>
 const frame=document.getElementById('app');
-let lastExportUrl='';
+let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=null,currentStream=null,currentAudioCtx=null;
 function once(el,event){return new Promise(res=>el.addEventListener(event,res,{once:true}))}
 frame.addEventListener('load',()=>{
   const w=frame.contentWindow,d=w.document;
   const btn=d.getElementById('exportVideo');
   if(!btn)return;
+  let cancel=d.getElementById('cancelExportVideo');
+  if(!cancel){
+    cancel=d.createElement('button');
+    cancel.id='cancelExportVideo';
+    cancel.type='button';
+    cancel.className='primary';
+    cancel.textContent='■ 書き出しを停止';
+    cancel.style.cssText='display:none;margin-top:8px;background:#8f1d24;color:#fff';
+    btn.insertAdjacentElement('afterend',cancel);
+  }
+  cancel.onclick=()=>{
+    exportCancelled=true;
+    const status=d.getElementById('exportStatus');
+    if(status)status.textContent='書き出しを停止しています…';
+    try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(_){}
+  };
   btn.onclick=async()=>{
     const status=d.getElementById('exportStatus'),bar=d.getElementById('exportBar'),dl=d.getElementById('downloadVideo');
     const list=w.getScenesReady?.()||[];
     if(!list.length||list.some(s=>!s.image||!s.audio)){status.textContent='全シーンのAI画像とAIナレーションを先に作成してください。';return}
     if(!w.MediaRecorder){status.textContent='このブラウザは動画書き出しに対応していません。';return}
-    btn.disabled=true;dl.style.display='none';bar.style.width='0%';status.textContent='iPhoneで見やすい動画形式で書き出し準備中…';
+    btn.disabled=true;cancel.style.display='block';exportCancelled=false;dl.style.display='none';bar.style.width='0%';status.textContent='iPhoneで見やすい動画形式で書き出し準備中…';
     if(lastExportUrl){URL.revokeObjectURL(lastExportUrl);lastExportUrl=''}
+    let rec=null,stream=null,audioCtx=null;
     try{
       const [width,height]=d.getElementById('exportSize').value.split('x').map(Number);
       const canvas=d.createElement('canvas');canvas.width=width;canvas.height=height;
-      const ctx=canvas.getContext('2d'),stream=canvas.captureStream(30);
-      const AudioCtx=w.AudioContext||w.webkitAudioContext,audioCtx=new AudioCtx(),dest=audioCtx.createMediaStreamDestination();
+      const ctx=canvas.getContext('2d');stream=canvas.captureStream(30);currentStream=stream;
+      const AudioCtx=w.AudioContext||w.webkitAudioContext;audioCtx=new AudioCtx();currentAudioCtx=audioCtx;const dest=audioCtx.createMediaStreamDestination();
       dest.stream.getAudioTracks().forEach(t=>stream.addTrack(t));
       const candidates=['video/mp4;codecs="avc1.42E01E,mp4a.40.2"','video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
       const mime=candidates.find(x=>w.MediaRecorder.isTypeSupported(x))||'';
-      const rec=new w.MediaRecorder(stream,mime?{mimeType:mime,videoBitsPerSecond:width>=1920?9000000:5000000}:{videoBitsPerSecond:5000000}),chunks=[];
-      rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};rec.start(1000);
-      for(let i=0;i<list.length;i++){
-        const s=list[i],img=await w.loadImage(s.image),a=new w.Audio(s.audio);a.preload='auto';
-        if(a.readyState<1)await once(a,'loadedmetadata');
+      rec=new w.MediaRecorder(stream,mime?{mimeType:mime,videoBitsPerSecond:width>=1920?9000000:5000000}:{videoBitsPerSecond:5000000});currentRecorder=rec;const chunks=[];
+      rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+      const stopped=new Promise(res=>rec.addEventListener('stop',res,{once:true}));
+      rec.start(1000);
+      for(let i=0;i<list.length&&!exportCancelled;i++){
+        const s=list[i],img=await w.loadImage(s.image);if(exportCancelled)break;
+        const a=new w.Audio(s.audio);currentAudio=a;a.preload='auto';
+        if(a.readyState<1)await once(a,'loadedmetadata');if(exportCancelled)break;
         const source=audioCtx.createMediaElementSource(a);source.connect(dest);source.connect(audioCtx.destination);await audioCtx.resume();
         let ended=false;a.onended=()=>ended=true;await a.play();
-        while(!ended){
+        while(!ended&&!exportCancelled){
           w.drawCover(ctx,img,width,height);w.drawVideoTitle(ctx,s.title,width,height);w.drawVideoSubtitle(ctx,w.subtitleAt(s.text,a.currentTime,a.duration||1),width,height);
           bar.style.width=`${((i+Math.min(1,a.currentTime/(a.duration||1)))/list.length)*100}%`;
           await new Promise(r=>w.requestAnimationFrame(r));
         }
-        source.disconnect();
+        try{a.pause()}catch(_){} currentAudio=null;source.disconnect();
       }
-      rec.stop();await once(rec,'stop');
+      if(rec.state!=='inactive')rec.stop();await stopped;
+      if(exportCancelled){chunks.length=0;bar.style.width='0%';status.textContent='動画の書き出しを停止しました。修正後にもう一度書き出せます。';return}
       const actualType=rec.mimeType||mime||'video/webm',isMp4=/mp4/i.test(actualType),ext=isMp4?'mp4':'webm';
       const blob=new Blob(chunks,{type:actualType});lastExportUrl=URL.createObjectURL(blob);
       dl.href=lastExportUrl;dl.download=`${(d.getElementById('topic').value||'youtube-video').replace(/[\\/:*?"<>|]/g,'_')}.${ext}`;dl.style.display='block';
       dl.textContent=`完成した動画を保存（${isMp4?'MP4':'WebM'}・${(blob.size/1024/1024).toFixed(1)}MB）`;
       let player=d.getElementById('completedVideo');
       if(!player){player=d.createElement('video');player.id='completedVideo';player.controls=true;player.playsInline=true;player.style.cssText='display:block;width:100%;margin-top:12px;border-radius:12px;background:#000';dl.parentElement.appendChild(player)}
-      player.src=lastExportUrl;player.style.display='block';
-      bar.style.width='100%';
+      player.src=lastExportUrl;player.style.display='block';bar.style.width='100%';
       status.textContent=isMp4?'動画が完成しました。iPhoneでそのまま再生・保存できます。':'動画は完成しましたが、この端末ではMP4直接書き出しに未対応のためWebMになりました。';
-    }catch(e){status.textContent='書き出しエラー: '+e.message}
-    finally{btn.disabled=false}
+    }catch(e){status.textContent=exportCancelled?'動画の書き出しを停止しました。修正後にもう一度書き出せます。':'書き出しエラー: '+e.message}
+    finally{
+      try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(_){}
+      currentAudio=null;currentRecorder=null;currentStream=null;currentAudioCtx=null;
+      if(stream)stream.getTracks().forEach(t=>t.stop());
+      if(audioCtx&&audioCtx.state!=='closed')try{await audioCtx.close()}catch(_){}
+      btn.disabled=false;cancel.style.display='none';
+    }
   };
 });
 </script>
