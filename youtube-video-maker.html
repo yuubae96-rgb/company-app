@@ -5,9 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#151a28">
 <title>YouTube動画作成</title>
-<style>
-html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}
-</style>
+<style>html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}</style>
 </head>
 <body>
 <iframe id="app" src="youtube-video-maker-core.html" allow="microphone;camera"></iframe>
@@ -17,8 +15,10 @@ let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=nul
 function once(el,event){return new Promise(res=>el.addEventListener(event,res,{once:true}))}
 frame.addEventListener('load',()=>{
   const w=frame.contentWindow,d=w.document;
+  const styleEl=d.createElement('style');
+  styleEl.textContent='.yt-short .pic,.yt-short .previewScreen{aspect-ratio:9/16!important;max-width:360px;margin-left:auto;margin-right:auto}.yt-short .sceneLabel,.yt-short .previewTitle{max-width:84%;font-size:clamp(14px,4vw,22px)}.yt-short .subtitle{left:7%;right:7%;bottom:8%;font-size:clamp(18px,5vw,28px)}.yt-short #completedVideo{max-width:360px;margin-left:auto!important;margin-right:auto!important}.yt-short #downloadVideo{max-width:360px;margin-left:auto;margin-right:auto}';
+  d.head.appendChild(styleEl);
 
-  // 「2」と同じ参考URL欄を旧YouTube動画作成にも追加
   const topic=d.getElementById('topic');
   if(topic&&!d.getElementById('referenceUrls')){
     const box=d.createElement('div');
@@ -26,18 +26,35 @@ frame.addEventListener('load',()=>{
     const chips=topic.parentElement.querySelector('.chips');
     (chips||topic).insertAdjacentElement('afterend',box);
   }
-  // 既存の構成生成API呼び出しに参考URLを自動で付ける
+
+  if(!d.getElementById('videoFormat')){
+    const fmt=d.createElement('div');
+    fmt.innerHTML='<label style="display:block;font-size:12px;font-weight:800;color:#6d7788;margin:10px 0 6px">動画形式</label><select id="videoFormat" style="width:100%;border:1px solid #dce1e8;border-radius:11px;padding:11px;font-size:16px;background:#fff;color:#172033"><option value="16:9">横動画（YouTube通常・16:9）</option><option value="9:16">縦動画（YouTubeショート・9:16）</option></select><div id="formatHint" style="font-size:12px;color:#6d7788;margin-top:5px">ショートを選ぶとAI画像も9:16の縦構図で生成します。</div>';
+    const ref=d.getElementById('referenceUrls');
+    (ref?.parentElement||topic).insertAdjacentElement('afterend',fmt);
+  }
+  const format=d.getElementById('videoFormat');
+  const getAspect=()=>format?.value==='9:16'?'9:16':'16:9';
+  const applyFormat=()=>{
+    const short=getAspect()==='9:16';
+    d.body.classList.toggle('yt-short',short);
+    const size=d.getElementById('exportSize');
+    if(size){size.disabled=short;size.title=short?'ショートは1080×1920で書き出します':''}
+    const hint=d.getElementById('formatHint');
+    if(hint)hint.textContent=short?'YouTubeショート：AI画像9:16・書き出し1080×1920':'YouTube通常：AI画像16:9・横動画で書き出し';
+  };
+  format.addEventListener('change',applyFormat);applyFormat();
+
   if(typeof w.api==='function'&&!w.__referenceUrlApiWrapped){
     const originalApi=w.api;
     w.api=async function(body,...args){
       if(body&&body.action==='generateScript'){
         const el=d.getElementById('referenceUrls');
         const urls=(el?.value||'').split(/\n/).map(x=>x.trim()).filter(x=>/^https?:\/\//i.test(x)).slice(0,5);
-        body={...body,referenceUrls:urls};
-        if(urls.length){
-          const st=d.getElementById('status');
-          if(st)st.textContent='参考資料を読み取り、AIが動画構成を作成中…';
-        }
+        body={...body,referenceUrls:urls,aspectRatio:getAspect()};
+        if(urls.length){const st=d.getElementById('status');if(st)st.textContent='参考資料を読み取り、AIが動画構成を作成中…'}
+      }else if(body&&body.action==='generateImage'){
+        body={...body,aspectRatio:getAspect()};
       }
       return originalApi.call(w,body,...args);
     };
@@ -47,72 +64,38 @@ frame.addEventListener('load',()=>{
   const btn=d.getElementById('exportVideo');
   if(!btn)return;
   let cancel=d.getElementById('cancelExportVideo');
-  if(!cancel){
-    cancel=d.createElement('button');
-    cancel.id='cancelExportVideo';
-    cancel.type='button';
-    cancel.className='primary';
-    cancel.textContent='■ 書き出しを停止';
-    cancel.style.cssText='display:none;margin-top:8px;background:#8f1d24;color:#fff';
-    btn.insertAdjacentElement('afterend',cancel);
-  }
-  cancel.onclick=()=>{
-    exportCancelled=true;
-    const status=d.getElementById('exportStatus');
-    if(status)status.textContent='書き出しを停止しています…';
-    try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(_){}
-  };
+  if(!cancel){cancel=d.createElement('button');cancel.id='cancelExportVideo';cancel.type='button';cancel.className='primary';cancel.textContent='■ 書き出しを停止';cancel.style.cssText='display:none;margin-top:8px;background:#8f1d24;color:#fff';btn.insertAdjacentElement('afterend',cancel)}
+  cancel.onclick=()=>{exportCancelled=true;const status=d.getElementById('exportStatus');if(status)status.textContent='書き出しを停止しています…';try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(_){}};
   btn.onclick=async()=>{
     const status=d.getElementById('exportStatus'),bar=d.getElementById('exportBar'),dl=d.getElementById('downloadVideo');
     const list=w.getScenesReady?.()||[];
     if(!list.length||list.some(s=>!s.image||!s.audio)){status.textContent='全シーンのAI画像とAIナレーションを先に作成してください。';return}
     if(!w.MediaRecorder){status.textContent='このブラウザは動画書き出しに対応していません。';return}
-    btn.disabled=true;cancel.style.display='block';exportCancelled=false;dl.style.display='none';bar.style.width='0%';status.textContent='iPhoneで見やすい動画形式で書き出し準備中…';
+    btn.disabled=true;cancel.style.display='block';exportCancelled=false;dl.style.display='none';bar.style.width='0%';status.textContent=getAspect()==='9:16'?'YouTubeショートを1080×1920で書き出し準備中…':'iPhoneで見やすい動画形式で書き出し準備中…';
     if(lastExportUrl){URL.revokeObjectURL(lastExportUrl);lastExportUrl=''}
     let rec=null,stream=null,audioCtx=null;
     try{
-      const [width,height]=d.getElementById('exportSize').value.split('x').map(Number);
+      let width,height;if(getAspect()==='9:16'){width=1080;height=1920}else{[width,height]=d.getElementById('exportSize').value.split('x').map(Number)}
       const canvas=d.createElement('canvas');canvas.width=width;canvas.height=height;
       const ctx=canvas.getContext('2d');stream=canvas.captureStream(30);currentStream=stream;
-      const AudioCtx=w.AudioContext||w.webkitAudioContext;audioCtx=new AudioCtx();currentAudioCtx=audioCtx;const dest=audioCtx.createMediaStreamDestination();
-      dest.stream.getAudioTracks().forEach(t=>stream.addTrack(t));
+      const AudioCtx=w.AudioContext||w.webkitAudioContext;audioCtx=new AudioCtx();currentAudioCtx=audioCtx;const dest=audioCtx.createMediaStreamDestination();dest.stream.getAudioTracks().forEach(t=>stream.addTrack(t));
       const candidates=['video/mp4;codecs="avc1.42E01E,mp4a.40.2"','video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
       const mime=candidates.find(x=>w.MediaRecorder.isTypeSupported(x))||'';
-      rec=new w.MediaRecorder(stream,mime?{mimeType:mime,videoBitsPerSecond:width>=1920?9000000:5000000}:{videoBitsPerSecond:5000000});currentRecorder=rec;const chunks=[];
-      rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
-      const stopped=new Promise(res=>rec.addEventListener('stop',res,{once:true}));
-      rec.start(1000);
+      rec=new w.MediaRecorder(stream,mime?{mimeType:mime,videoBitsPerSecond:getAspect()==='9:16'?8000000:(width>=1920?9000000:5000000)}:{videoBitsPerSecond:5000000});currentRecorder=rec;const chunks=[];
+      rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};const stopped=new Promise(res=>rec.addEventListener('stop',res,{once:true}));rec.start(1000);
       for(let i=0;i<list.length&&!exportCancelled;i++){
-        const s=list[i],img=await w.loadImage(s.image);if(exportCancelled)break;
-        const a=new w.Audio(s.audio);currentAudio=a;a.preload='auto';
-        if(a.readyState<1)await once(a,'loadedmetadata');if(exportCancelled)break;
-        const source=audioCtx.createMediaElementSource(a);source.connect(dest);source.connect(audioCtx.destination);await audioCtx.resume();
-        let ended=false;a.onended=()=>ended=true;await a.play();
-        while(!ended&&!exportCancelled){
-          w.drawCover(ctx,img,width,height);w.drawVideoTitle(ctx,s.title,width,height);w.drawVideoSubtitle(ctx,w.subtitleAt(s.text,a.currentTime,a.duration||1),width,height);
-          bar.style.width=`${((i+Math.min(1,a.currentTime/(a.duration||1)))/list.length)*100}%`;
-          await new Promise(r=>w.requestAnimationFrame(r));
-        }
-        try{a.pause()}catch(_){} currentAudio=null;source.disconnect();
+        const s=list[i],img=await w.loadImage(s.image);if(exportCancelled)break;const a=new w.Audio(s.audio);currentAudio=a;a.preload='auto';if(a.readyState<1)await once(a,'loadedmetadata');if(exportCancelled)break;
+        const source=audioCtx.createMediaElementSource(a);source.connect(dest);source.connect(audioCtx.destination);await audioCtx.resume();let ended=false;a.onended=()=>ended=true;await a.play();
+        while(!ended&&!exportCancelled){w.drawCover(ctx,img,width,height);w.drawVideoTitle(ctx,s.title,width,height);w.drawVideoSubtitle(ctx,w.subtitleAt(s.text,a.currentTime,a.duration||1),width,height);bar.style.width=`${((i+Math.min(1,a.currentTime/(a.duration||1)))/list.length)*100}%`;await new Promise(r=>w.requestAnimationFrame(r))}
+        try{a.pause()}catch(_){}currentAudio=null;source.disconnect();
       }
       if(rec.state!=='inactive')rec.stop();await stopped;
       if(exportCancelled){chunks.length=0;bar.style.width='0%';status.textContent='動画の書き出しを停止しました。修正後にもう一度書き出せます。';return}
-      const actualType=rec.mimeType||mime||'video/webm',isMp4=/mp4/i.test(actualType),ext=isMp4?'mp4':'webm';
-      const blob=new Blob(chunks,{type:actualType});lastExportUrl=URL.createObjectURL(blob);
-      dl.href=lastExportUrl;dl.download=`${(d.getElementById('topic').value||'youtube-video').replace(/[\\/:*?"<>|]/g,'_')}.${ext}`;dl.style.display='block';
-      dl.textContent=`完成した動画を保存（${isMp4?'MP4':'WebM'}・${(blob.size/1024/1024).toFixed(1)}MB）`;
-      let player=d.getElementById('completedVideo');
-      if(!player){player=d.createElement('video');player.id='completedVideo';player.controls=true;player.playsInline=true;player.style.cssText='display:block;width:100%;margin-top:12px;border-radius:12px;background:#000';dl.parentElement.appendChild(player)}
-      player.src=lastExportUrl;player.style.display='block';bar.style.width='100%';
-      status.textContent=isMp4?'動画が完成しました。iPhoneでそのまま再生・保存できます。':'動画は完成しましたが、この端末ではMP4直接書き出しに未対応のためWebMになりました。';
+      const actualType=rec.mimeType||mime||'video/webm',isMp4=/mp4/i.test(actualType),ext=isMp4?'mp4':'webm';const blob=new Blob(chunks,{type:actualType});lastExportUrl=URL.createObjectURL(blob);
+      dl.href=lastExportUrl;dl.download=`${(d.getElementById('topic').value||'youtube-video').replace(/[\\/:*?"<>|]/g,'_')}${getAspect()==='9:16'?'-short':''}.${ext}`;dl.style.display='block';dl.textContent=`完成した${getAspect()==='9:16'?'ショート':'動画'}を保存（${isMp4?'MP4':'WebM'}・${(blob.size/1024/1024).toFixed(1)}MB）`;
+      let player=d.getElementById('completedVideo');if(!player){player=d.createElement('video');player.id='completedVideo';player.controls=true;player.playsInline=true;player.style.cssText='display:block;width:100%;margin-top:12px;border-radius:12px;background:#000';dl.parentElement.appendChild(player)}player.src=lastExportUrl;player.style.display='block';bar.style.width='100%';status.textContent='動画が完成しました。';
     }catch(e){status.textContent=exportCancelled?'動画の書き出しを停止しました。修正後にもう一度書き出せます。':'書き出しエラー: '+e.message}
-    finally{
-      try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(_){}
-      currentAudio=null;currentRecorder=null;currentStream=null;currentAudioCtx=null;
-      if(stream)stream.getTracks().forEach(t=>t.stop());
-      if(audioCtx&&audioCtx.state!=='closed')try{await audioCtx.close()}catch(_){}
-      btn.disabled=false;cancel.style.display='none';
-    }
+    finally{try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(_){}currentAudio=null;currentRecorder=null;currentStream=null;currentAudioCtx=null;if(stream)stream.getTracks().forEach(t=>t.stop());if(audioCtx&&audioCtx.state!=='closed')try{await audioCtx.close()}catch(_){}btn.disabled=false;cancel.style.display='none'}
   };
 });
 </script>
