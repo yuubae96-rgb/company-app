@@ -88,6 +88,8 @@ document.getElementById('scanReadings').onclick=()=>{const a=scan(),el=document.
 document.getElementById('addReading').onclick=()=>{const a=document.getElementById('readingTerm').value.trim(),b=document.getElementById('readingValue').value.trim();if(!a||!b)return;const o=parse(document.getElementById('readingDictText').value);o[a]=b;document.getElementById('readingDictText').value=txt(o)};
 document.getElementById('saveReadingDict').onclick=()=>{const o=parse(document.getElementById('readingDictText').value);save(o);const n=applyAll();document.getElementById('readingStatus').textContent='✅ 保存して音声用の読みへ反映しました（'+n+'シーン）。'};
 }
-new MutationObserver(()=>{install();applyAll()}).observe(document.body,{childList:true,subtree:true});install();
+const initializedScenes=new WeakSet();
+function initializeNewScenes(){const o=load();scenes().forEach(row=>{if(initializedScenes.has(row))return;initializedScenes.add(row);const r=row.querySelector('.ttsNar'),nar=row.querySelector('.nar')?.value||'';if(r&&(!r.value||r.value===nar))r.value=apply(nar,o)})}
+new MutationObserver(()=>{install();initializeNewScenes()}).observe(document.body,{childList:true,subtree:true});install();initializeNewScenes();
 })();
 </script></body></html>
