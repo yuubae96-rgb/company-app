@@ -8,7 +8,7 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}</style>
 </head>
 <body>
-<iframe id="app" src="youtube-video-maker-core.html?v=scene-image-ai-20261004" allow="microphone;camera"></iframe>
+<iframe id="app" src="youtube-video-maker-core.html?v=title-ending-20261004" allow="microphone;camera"></iframe>
 <script>
 const frame=document.getElementById('app');
 let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=null,currentStream=null,currentAudioCtx=null;
@@ -121,8 +121,17 @@ frame.addEventListener('load',()=>{
       for(let i=0;i<list.length&&!exportCancelled;i++){
         const s=list[i],img=await w.loadImage(s.image);if(exportCancelled)break;const a=new w.Audio(s.audio);currentAudio=a;a.preload='auto';if(a.readyState<1)await once(a,'loadedmetadata');if(exportCancelled)break;
         const source=audioCtx.createMediaElementSource(a);source.connect(dest);source.connect(audioCtx.destination);await audioCtx.resume();let ended=false;a.onended=()=>ended=true;await a.play();
-        while(!ended&&!exportCancelled){w.drawCover(ctx,img,width,height);w.drawVideoTitle(ctx,s.title,width,height);w.drawVideoSubtitle(ctx,w.subtitleAt(s.text,a.currentTime,a.duration||1),width,height);bar.style.width=`${((i+Math.min(1,a.currentTime/(a.duration||1)))/list.length)*100}%`;await new Promise(r=>w.requestAnimationFrame(r))}
+        while(!ended&&!exportCancelled){w.drawCover(ctx,img,width,height);w.drawVideoTitle(ctx,s.title,width,height);w.drawVideoSubtitle(ctx,w.subtitleAt(s.text,a.currentTime,a.duration||1,s.alignment||[]),width,height);bar.style.width=`${((i+Math.min(1,a.currentTime/(a.duration||1)))/list.length)*100}%`;await new Promise(r=>w.requestAnimationFrame(r))}
         try{a.pause()}catch(_){}currentAudio=null;source.disconnect();
+        if(i===list.length-1&&!exportCancelled){
+          const hold=w.endingHoldSeconds(),end=performance.now()+hold*1000;
+          status.textContent='最後の余韻を追加中…';
+          while(performance.now()<end&&!exportCancelled){
+            w.drawCover(ctx,img,width,height);w.drawVideoTitle(ctx,s.title,width,height);
+            w.drawVideoSubtitle(ctx,w.subtitleAt(s.text,a.duration||1,a.duration||1,s.alignment||[]),width,height);
+            await new Promise(r=>w.requestAnimationFrame(r));
+          }
+        }
       }
       if(rec.state!=='inactive')rec.stop();await stopped;
       if(exportCancelled){chunks.length=0;bar.style.width='0%';status.textContent='動画の書き出しを停止しました。修正後にもう一度書き出せます。';return}
