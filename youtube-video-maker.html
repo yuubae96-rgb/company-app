@@ -8,7 +8,7 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}</style>
 </head>
 <body>
-<iframe id="app" src="youtube-video-maker-core.html?v=title-ending-20261004" allow="microphone;camera"></iframe>
+<iframe id="app" src="youtube-video-maker-core.html?v=audio-tail-20261004" allow="microphone;camera"></iframe>
 <script>
 const frame=document.getElementById('app');
 let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=null,currentStream=null,currentAudioCtx=null;
@@ -119,19 +119,33 @@ frame.addEventListener('load',()=>{
       rec=new w.MediaRecorder(stream,mime?{mimeType:mime,videoBitsPerSecond:getAspect()==='9:16'?8000000:(width>=1920?9000000:5000000)}:{videoBitsPerSecond:5000000});currentRecorder=rec;const chunks=[];
       rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};const stopped=new Promise(res=>rec.addEventListener('stop',res,{once:true}));rec.start(1000);
       for(let i=0;i<list.length&&!exportCancelled;i++){
-        const s=list[i],img=await w.loadImage(s.image);if(exportCancelled)break;const a=new w.Audio(s.audio);currentAudio=a;a.preload='auto';if(a.readyState<1)await once(a,'loadedmetadata');if(exportCancelled)break;
-        const source=audioCtx.createMediaElementSource(a);source.connect(dest);source.connect(audioCtx.destination);await audioCtx.resume();let ended=false;a.onended=()=>ended=true;await a.play();
-        while(!ended&&!exportCancelled){w.drawCover(ctx,img,width,height);w.drawVideoTitle(ctx,s.title,width,height);w.drawVideoSubtitle(ctx,w.subtitleAt(s.text,a.currentTime,a.duration||1,s.alignment||[]),width,height);bar.style.width=`${((i+Math.min(1,a.currentTime/(a.duration||1)))/list.length)*100}%`;await new Promise(r=>w.requestAnimationFrame(r))}
-        try{a.pause()}catch(_){}currentAudio=null;source.disconnect();
+        const s=list[i],img=await w.loadImage(s.image);if(exportCancelled)break;
+        // Schedule the complete decoded narration on the recording audio clock.
+        // Media-element ended can precede delivery of its final samples to the recorder.
+        const response=await w.fetch(s.audio);if(!response.ok)throw new Error('音声を読み込めませんでした');
+        const buffer=await audioCtx.decodeAudioData(await response.arrayBuffer());if(exportCancelled)break;
+        const source=audioCtx.createBufferSource();source.buffer=buffer;source.connect(dest);source.connect(audioCtx.destination);
+        await audioCtx.resume();const start=audioCtx.currentTime+.05,endAudio=start+buffer.duration;
+        let ended=false;source.onended=()=>ended=true;currentAudio={pause(){try{source.stop()}catch(_){}}};source.start(start);
+        const drain=Math.max(.15,(audioCtx.baseLatency||0)+(audioCtx.outputLatency||0)+.05);
+        while((!ended||audioCtx.currentTime<endAudio+drain)&&!exportCancelled){
+          const elapsed=Math.max(0,Math.min(buffer.duration,audioCtx.currentTime-start));
+          w.drawCover(ctx,img,width,height);w.drawVideoTitle(ctx,s.title,width,height);
+          w.drawVideoSubtitle(ctx,w.subtitleAt(s.text,elapsed,buffer.duration,s.alignment||[]),width,height);
+          bar.style.width=`${((i+elapsed/buffer.duration)/list.length)*100}%`;
+          await new Promise(r=>w.requestAnimationFrame(r));
+        }
+        if(exportCancelled)currentAudio.pause();currentAudio=null;
         if(i===list.length-1&&!exportCancelled){
           const hold=w.endingHoldSeconds(),end=performance.now()+hold*1000;
           status.textContent='最後の余韻を追加中…';
           while(performance.now()<end&&!exportCancelled){
             w.drawCover(ctx,img,width,height);w.drawVideoTitle(ctx,s.title,width,height);
-            w.drawVideoSubtitle(ctx,w.subtitleAt(s.text,a.duration||1,a.duration||1,s.alignment||[]),width,height);
+            w.drawVideoSubtitle(ctx,w.subtitleAt(s.text,buffer.duration,buffer.duration,s.alignment||[]),width,height);
             await new Promise(r=>w.requestAnimationFrame(r));
           }
         }
+        source.disconnect();
       }
       if(rec.state!=='inactive')rec.stop();await stopped;
       if(exportCancelled){chunks.length=0;bar.style.width='0%';status.textContent='動画の書き出しを停止しました。修正後にもう一度書き出せます。';return}
