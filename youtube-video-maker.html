@@ -8,7 +8,7 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}</style>
 </head>
 <body>
-<iframe id="app" src="youtube-video-maker-core.html?v=audio-tail-20261004" allow="microphone;camera"></iframe>
+<iframe id="app" src="youtube-video-maker-core.html?v=audio-tail-pad-20261004-0723" allow="microphone;camera"></iframe>
 <script>
 const frame=document.getElementById('app');
 let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=null,currentStream=null,currentAudioCtx=null;
@@ -124,36 +124,49 @@ frame.addEventListener('load',()=>{
         // Media-element ended can precede delivery of its final samples to the recorder.
         const response=await w.fetch(s.audio);if(!response.ok)throw new Error('音声を読み込めませんでした');
         const buffer=await audioCtx.decodeAudioData(await response.arrayBuffer());if(exportCancelled)break;
-        const source=audioCtx.createBufferSource();source.buffer=buffer;source.connect(dest);source.connect(audioCtx.destination);
-        await audioCtx.resume();const start=audioCtx.currentTime+.05,endAudio=start+buffer.duration;
+        // Keep actual silence flowing through the audio encoder after the final word.
+        // Safari can otherwise omit its buffered final AAC samples when recording stops.
+        const finalScene=i===list.length-1;
+        const tailSeconds=finalScene?Math.max(1,w.endingHoldSeconds()):0;
+        let recordingBuffer=buffer;
+        if(finalScene){
+          recordingBuffer=audioCtx.createBuffer(buffer.numberOfChannels,buffer.length+Math.ceil(tailSeconds*buffer.sampleRate),buffer.sampleRate);
+          for(let channel=0;channel<buffer.numberOfChannels;channel++)recordingBuffer.getChannelData(channel).set(buffer.getChannelData(channel));
+        }
+        const source=audioCtx.createBufferSource();source.buffer=recordingBuffer;source.connect(dest);source.connect(audioCtx.destination);
+        await audioCtx.resume();const start=audioCtx.currentTime+.05,endAudio=start+recordingBuffer.duration;
         let ended=false;source.onended=()=>ended=true;currentAudio={pause(){try{source.stop()}catch(_){}}};source.start(start);
-        const drain=Math.max(.15,(audioCtx.baseLatency||0)+(audioCtx.outputLatency||0)+.05);
+        const drain=Math.max(1,(audioCtx.baseLatency||0)+(audioCtx.outputLatency||0)+.25);
         while((!ended||audioCtx.currentTime<endAudio+drain)&&!exportCancelled){
           const elapsed=Math.max(0,Math.min(buffer.duration,audioCtx.currentTime-start));
+          if(finalScene&&audioCtx.currentTime>=start+buffer.duration)status.textContent='最後の余韻を追加中…';
           w.drawCover(ctx,img,width,height);w.drawVideoTitle(ctx,s.title,width,height);
           w.drawVideoSubtitle(ctx,w.subtitleAt(s.text,elapsed,buffer.duration,s.alignment||[]),width,height);
           bar.style.width=`${((i+elapsed/buffer.duration)/list.length)*100}%`;
           await new Promise(r=>w.requestAnimationFrame(r));
         }
         if(exportCancelled)currentAudio.pause();currentAudio=null;
-        if(i===list.length-1&&!exportCancelled){
-          const hold=w.endingHoldSeconds(),end=performance.now()+hold*1000;
-          status.textContent='最後の余韻を追加中…';
-          while(performance.now()<end&&!exportCancelled){
-            w.drawCover(ctx,img,width,height);w.drawVideoTitle(ctx,s.title,width,height);
-            w.drawVideoSubtitle(ctx,w.subtitleAt(s.text,buffer.duration,buffer.duration,s.alignment||[]),width,height);
-            await new Promise(r=>w.requestAnimationFrame(r));
-          }
-        }
         source.disconnect();
       }
-      if(rec.state!=='inactive')rec.stop();await stopped;
+      if(rec.state!=='inactive'){
+        // Flush a complete final recorder chunk before asking Safari to finalize MP4.
+        if(!exportCancelled){
+          await new Promise((resolve,reject)=>{
+            const timer=setTimeout(()=>{rec.removeEventListener('dataavailable',flushed);reject(new Error('動画の最終音声の保存が完了しませんでした。もう一度書き出してください。'))},10000);
+            function flushed(){clearTimeout(timer);resolve()}
+            rec.addEventListener('dataavailable',flushed,{once:true});
+            try{rec.requestData()}catch(e){clearTimeout(timer);rec.removeEventListener('dataavailable',flushed);reject(e)}
+          });
+        }
+        rec.stop();
+      }
+      await stopped;
       if(exportCancelled){chunks.length=0;bar.style.width='0%';status.textContent='動画の書き出しを停止しました。修正後にもう一度書き出せます。';return}
       const actualType=rec.mimeType||mime||'video/webm',isMp4=/mp4/i.test(actualType),ext=isMp4?'mp4':'webm';const blob=new Blob(chunks,{type:actualType});lastExportUrl=URL.createObjectURL(blob);
       dl.href=lastExportUrl;dl.download=`${(d.getElementById('topic').value||'youtube-video').replace(/[\\/:*?"<>|]/g,'_')}${getAspect()==='9:16'?'-short':''}.${ext}`;dl.style.display='block';dl.textContent=`完成した${getAspect()==='9:16'?'ショート':'動画'}を保存（${isMp4?'MP4':'WebM'}・${(blob.size/1024/1024).toFixed(1)}MB）`;
       let player=d.getElementById('completedVideo');if(!player){player=d.createElement('video');player.id='completedVideo';player.controls=true;player.playsInline=true;player.style.cssText='display:block;width:100%;margin-top:12px;border-radius:12px;background:#000';dl.parentElement.appendChild(player)}player.src=lastExportUrl;player.style.display='block';bar.style.width='100%';status.textContent='動画が完成しました。';
     }catch(e){status.textContent=exportCancelled?'動画の書き出しを停止しました。修正後にもう一度書き出せます。':'書き出しエラー: '+e.message}
-    finally{try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(_){}currentAudio=null;currentRecorder=null;currentStream=null;currentAudioCtx=null;if(stream)stream.getTracks().forEach(t=>t.stop());if(audioCtx&&audioCtx.state!=='closed')try{await audioCtx.close()}catch(_){}btn.disabled=false;cancel.style.display='none'}
+    finally{try{if(rec&&rec.state!=='inactive')rec.stop()}catch(_){}try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(_){}currentAudio=null;currentRecorder=null;currentStream=null;currentAudioCtx=null;if(stream)stream.getTracks().forEach(t=>t.stop());if(audioCtx&&audioCtx.state!=='closed')try{await audioCtx.close()}catch(_){}btn.disabled=false;cancel.style.display='none'}
   };
 });
 </script>
