@@ -8,7 +8,7 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}</style>
 </head>
 <body>
-<iframe id="app" src="youtube-video-maker-core.html?v=20261004-column9" allow="microphone;camera"></iframe>
+<iframe id="app" src="youtube-video-maker-core.html?v=20261004-identity10" allow="microphone;camera"></iframe>
 <script>
 const frame=document.getElementById('app');
 let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=null,currentStream=null,currentAudioCtx=null;
@@ -64,7 +64,7 @@ frame.addEventListener('load',()=>{
   }
   if(!d.getElementById('referenceImageControls')){
     const refs=d.createElement('div');refs.id='referenceImageControls';refs.className='refGrid';
-    refs.innerHTML='<div class="refCard"><label>主人公・キャラクターの基準画像（任意）</label><input id="protagonistRefInput" type="file" accept="image/*"><img id="protagonistRefPreview" class="refPreview"><div id="protagonistRefState" class="refState">顔・髪型・体格などを全シーンで揃える時に使います。</div></div><div class="refCard"><label>画風の基準画像（任意）</label><input id="styleRefInput" type="file" accept="image/*"><img id="styleRefPreview" class="refPreview"><div id="styleRefState" class="refState">色・陰影・質感・描き込みの雰囲気を揃える時に使います。</div></div>';
+    refs.innerHTML='<div class="refCard"><label>主人公・キャラクターの基準画像（任意）</label><input id="protagonistName" type="text" placeholder="主人公の名前（例：三島海雲）" aria-label="主人公の名前"><input id="protagonistRefInput" type="file" accept="image/*"><img id="protagonistRefPreview" class="refPreview"><div id="protagonistRefState" class="refState">名前と基準画像を設定すると、文脈から同じ人物として描きます。</div></div><div class="refCard"><label>画風の基準画像（任意）</label><input id="styleRefInput" type="file" accept="image/*"><img id="styleRefPreview" class="refPreview"><div id="styleRefState" class="refState">色・陰影・質感・描き込みの雰囲気を揃える時に使います。</div></div>';
     const fmt=d.getElementById('videoFormat');(fmt?.parentElement||topic).insertAdjacentElement('afterend',refs);
     d.getElementById('protagonistRefInput').onchange=async e=>{const f=e.target.files?.[0];if(f)setProtagonistReference(await imageFileToDataUrl(f))};
     d.getElementById('styleRefInput').onchange=async e=>{const f=e.target.files?.[0];if(f)setStyleReference(await imageFileToDataUrl(f))};
@@ -79,7 +79,16 @@ frame.addEventListener('load',()=>{
         body={...body,referenceUrls:urls,aspectRatio:getAspect()};
         if(urls.length){const st=d.getElementById('status');if(st)st.textContent='参考資料を読み取り、AIが動画構成を作成中…'}
       }else if(body&&body.action==='generateImage'){
-        body={...body,aspectRatio:getAspect(),protagonistReference,styleReference};
+        // Saved previews are restored by the draft system; recover their reference bytes too.
+        const savedRef=d.getElementById('protagonistRefPreview');
+        const savedStyle=d.getElementById('styleRefPreview');
+        protagonistReference=savedRef?.getAttribute('src')||protagonistReference;
+        styleReference=savedStyle?.getAttribute('src')||styleReference;
+        const name=d.getElementById('protagonistName')?.value.trim()||'';
+        const identityInstruction=protagonistReference?
+          '\\n主人公の同一人物固定：添付の主人公基準画像'+(name?'は「'+name+'」です。':'に写る主人公が、この物語の中心人物です。')+
+          '全体原稿と前後場面を読んで、「彼」「この青年」「創業者」などの省略された呼び方も、文脈上この主人公を指すなら同一人物として描いてください。顔の骨格、目、鼻、口、髪の生え際、体格を維持してください。衣装・表情・姿勢・場所は場面に合わせ、年代が変わる時だけ同じ人を自然に加齢させてください。別人の場面には主人公を入れないでください。':'';
+        body={...body,prompt:body.prompt+identityInstruction,aspectRatio:getAspect(),protagonistReference,styleReference};
       }
       return originalApi.call(w,body,...args);
     };
