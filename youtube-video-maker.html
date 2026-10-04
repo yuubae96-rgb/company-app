@@ -8,7 +8,7 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}</style>
 </head>
 <body>
-<iframe id="app" src="youtube-video-maker-core.html?v=20261004-export4" allow="microphone;camera"></iframe>
+<iframe id="app" src="youtube-video-maker-core.html?v=20261004-context5" allow="microphone;camera"></iframe>
 <script>
 const frame=document.getElementById('app');
 let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=null,currentStream=null,currentAudioCtx=null;
@@ -106,7 +106,7 @@ frame.addEventListener('load',()=>{
     const list=w.getScenesReady?.()||[];
     if(!list.length||list.some(s=>!s.image||!s.audio)){status.textContent='全シーンのAI画像とAIナレーションを先に作成してください。';return}
     if(!w.MediaRecorder){status.textContent='このブラウザは動画書き出しに対応していません。';return}
-    btn.disabled=true;cancel.style.display='block';exportCancelled=false;dl.style.display='none';bar.style.width='0%';status.textContent=getAspect()==='9:16'?'YouTubeショートを1080×1920で書き出し準備中…':'iPhoneで見やすい動画形式で書き出し準備中…';
+    btn.dataset.exportBusy='1';btn.disabled=true;cancel.style.display='block';exportCancelled=false;dl.style.display='none';bar.style.width='0%';status.textContent=getAspect()==='9:16'?'YouTubeショートを1080×1920で書き出し準備中…':'iPhoneで見やすい動画形式で書き出し準備中…';
     if(lastExportUrl){URL.revokeObjectURL(lastExportUrl);lastExportUrl=''}
     let rec=null,stream=null,audioCtx=null;
     try{
@@ -159,7 +159,7 @@ frame.addEventListener('load',()=>{
       dl.href=lastExportUrl;dl.download=`${(d.getElementById('topic').value||'youtube-video').replace(/[\\/:*?"<>|]/g,'_')}${getAspect()==='9:16'?'-short':''}.${ext}`;dl.style.display='block';dl.textContent=`完成した${getAspect()==='9:16'?'ショート':'動画'}を保存（${isMp4?'MP4':'WebM'}・${(blob.size/1024/1024).toFixed(1)}MB）`;
       let player=d.getElementById('completedVideo');if(!player){player=d.createElement('video');player.id='completedVideo';player.controls=true;player.playsInline=true;player.style.cssText='display:block;width:100%;margin-top:12px;border-radius:12px;background:#000';dl.parentElement.appendChild(player)}player.src=lastExportUrl;player.style.display='block';bar.style.width='100%';status.textContent='動画が完成しました。';
     }catch(e){status.textContent=exportCancelled?'動画の書き出しを停止しました。修正後にもう一度書き出せます。':'書き出しエラー: '+e.message}
-    finally{try{if(rec&&rec.state!=='inactive')rec.stop()}catch(_){}try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(_){}currentAudio=null;currentRecorder=null;currentStream=null;currentAudioCtx=null;if(stream)stream.getTracks().forEach(t=>t.stop());if(audioCtx&&audioCtx.state!=='closed')try{await audioCtx.close()}catch(_){}btn.disabled=false;cancel.style.display='none'}
+    finally{try{if(rec&&rec.state!=='inactive')rec.stop()}catch(_){}try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(_){}currentAudio=null;currentRecorder=null;currentStream=null;currentAudioCtx=null;if(stream)stream.getTracks().forEach(t=>t.stop());if(audioCtx&&audioCtx.state!=='closed')try{await audioCtx.close()}catch(_){}delete btn.dataset.exportBusy;w.updateExportReadiness?.();cancel.style.display='none'}
   };
 });
 </script>
