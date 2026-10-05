@@ -8,7 +8,7 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}</style>
 </head>
 <body>
-<iframe id="app" src="youtube-video-maker-core.html?v=20261006-url-only-one-minute-wine" allow="microphone;camera"></iframe>
+<iframe id="app" src="youtube-video-maker-core.html?v=20261006-lower-captions-motion" allow="microphone;camera"></iframe>
 <script>
 const frame=document.getElementById('app');
 let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=null,currentStream=null,currentAudioCtx=null;
@@ -151,7 +151,7 @@ frame.addEventListener('load',()=>{
         while((!ended||audioCtx.currentTime<endAudio+drain)&&!exportCancelled){
           const elapsed=Math.max(0,Math.min(buffer.duration,audioCtx.currentTime-start));
           if(finalScene&&audioCtx.currentTime>=start+buffer.duration)status.textContent='最後の余韻を追加中…';
-          w.drawCover(ctx,img,width,height);w.drawVideoTitle(ctx,s.title,width,height);
+          w.drawCover(ctx,img,width,height,elapsed,buffer.duration,i);w.drawVideoTitle(ctx,s.title,width,height);
           w.drawVideoSubtitle(ctx,w.subtitleAt(s.text,elapsed,buffer.duration,s.alignment||[]),width,height);
           bar.style.width=`${((i+elapsed/buffer.duration)/list.length)*100}%`;
           await new Promise(r=>w.requestAnimationFrame(r));
