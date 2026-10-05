@@ -60,7 +60,7 @@ $('makeAllFromTopic').onclick=async()=>{
  if(topicBatchRunning)return;
  if(!$('topic').value.trim()){$('status').textContent='テーマを入力してください。';return}
  const format=$('videoFormat');
- const settings=[`動画形式：${format?.selectedOptions[0]?.textContent||'横動画（16:9）'}`,`ナレーションの声：${$('voice').selectedOptions[0].textContent}`,`画風：${$('style').selectedOptions[0].textContent}`];
+ const settings=[`動画の長さ：${$('minutes').selectedOptions[0].textContent}（目安）`,`動画形式：${format?.selectedOptions[0]?.textContent||'横動画（16:9）'}`,`ナレーションの声：${$('voice').selectedOptions[0].textContent}`,`画風：${$('style').selectedOptions[0].textContent}`];
  if(!confirm('次の設定で一括作成します。\n\n'+settings.join('\n')+'\n\nこの設定で作成してよろしいですか？'))return;
  const b=$('makeAllFromTopic');topicBatchRunning=true;b.disabled=true;
  try{
