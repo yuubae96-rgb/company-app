@@ -8,7 +8,7 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}</style>
 </head>
 <body>
-<iframe id="app" src="youtube-video-maker-core.html?v=20261006-aoyama-batch-reading" allow="microphone;camera"></iframe>
+<iframe id="app" src="youtube-video-maker-core.html?v=20261006-batch-confirm" allow="microphone;camera"></iframe>
 <script>
 const frame=document.getElementById('app');
 let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=null,currentStream=null,currentAudioCtx=null;
@@ -34,6 +34,8 @@ frame.addEventListener('load',()=>{
     const ref=d.getElementById('referenceUrls');
     (ref?.parentElement||topic).insertAdjacentElement('afterend',fmt);
   }
+  const batch=d.getElementById('makeAllFromTopic'),reference=d.getElementById('referenceUrls');
+  if(batch&&reference)reference.parentElement.appendChild(batch);
   const format=d.getElementById('videoFormat');
   const getAspect=()=>format?.value==='9:16'?'9:16':'16:9';
   const applyFormat=()=>{
