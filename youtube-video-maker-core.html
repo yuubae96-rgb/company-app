@@ -183,4 +183,4 @@ const initializedScenes=new WeakSet();
 function initializeNewScenes(){const o=load();scenes().forEach(row=>{if(initializedScenes.has(row))return;initializedScenes.add(row);const r=row.querySelector('.ttsNar'),nar=row.querySelector('.nar')?.value||'';if(r&&(!r.value||r.value===nar))r.value=narrationBreaths(apply(nar,o))})}
 new MutationObserver(()=>{install();initializeNewScenes()}).observe(document.body,{childList:true,subtree:true});install();initializeNewScenes();
 })();
-</script><script src="video-background-jobs.js?v=20261007-bg1"></script></body></html>
+</script><script src="video-background-jobs.js?v=20261007-bg2"></script></body></html>
