@@ -166,7 +166,7 @@ $('exportVideo').onclick=async()=>{const btn=$('exportVideo'),status=$('exportSt
 </script><script src="video-draft-save.js?v=20261008-acceptance-progress"></script><script>
 (()=>{if(window.__readingRegressionGuard)return;window.__readingRegressionGuard=true;
 const KEY='videoReadingDictionaryV1';
-const KNOWN={'宮城事件':'きゅうじょうじけん','重光葵':'しげみつまもる','阿南惟幾':'あなみこれちか','近衛文麿':'このえふみまろ','鈴木貫太郎':'すずきかんたろう','木戸幸一':'きどこういち','東郷茂徳':'とうごうしげのり','昭和天皇':'しょうわてんのう','玉音放送':'ぎょくおんほうそう','御前会議':'ごぜんかいぎ','大本営':'だいほんえい'};
+const KNOWN={'宮城事件':'きゅうじょうじけん','重光葵':'しげみつまもる','阿南惟幾':'あなみこれちか','近衛文麿':'このえふみまろ','鈴木貫太郎':'すずきかんたろう','木戸幸一':'きどこういち','東郷茂徳':'とうごうしげのり','昭和天皇':'しょうわてんのう','玉音放送':'ぎょくおんほうそう','御前会議':'ごぜんかいぎ','大本営':'だいほんえい','陳勝呉広の乱':'ちんしょうごこうのらん','陳勝':'ちんしょう','呉広':'ごこう','始皇帝':'しこうてい','項羽':'こうう','劉邦':'りゅうほう','楚漢戦争':'そかんせんそう','鴻門の会':'こうもんのかい','項伯':'こうはく','張良':'ちょうりょう','項荘':'こうそう','樊噲':'はんかい','韓信':'かんしん','蕭何':'しょうか','背水の陣':'はいすいのじん','趙':'ちょう','楚':'そ','秦':'しん','群雄割拠':'ぐんゆうかっきょ','国士無双':'こくしむそう'};
 const load=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'{}')||{}}catch{return{}}};
 const save=o=>localStorage.setItem(KEY,JSON.stringify(o));
 const parse=t=>{const o={};String(t||'').split(/\n/).forEach(line=>{const m=line.match(/^\s*(.+?)\s*(?:=|→|=>|：|:)\s*(.+?)\s*$/);if(m)o[m[1]]=m[2]});return o};
