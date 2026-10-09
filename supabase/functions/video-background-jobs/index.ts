@@ -15,9 +15,39 @@ const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 async function voicevox(b:any){const r=await fetch('https://api.tts.quest/v3/voicevox/synthesis',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({text:b.text,speaker:String(b.speaker||13)}),signal:AbortSignal.timeout(20000)});const d=await r.json();if(!d.success)throw Error(d.message||'VOICEVOXの生成開始に失敗しました');const deadline=Date.now()+90000;while(Date.now()<deadline){const s=await fetch(d.audioStatusUrl,{signal:AbortSignal.timeout(10000)}).then(r=>r.json());if(s.isAudioError)throw Error('VOICEVOXの音声生成に失敗しました');if(s.isAudioReady){const r=await fetch(d.mp3DownloadUrl||d.wavDownloadUrl,{signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('完成音声を保存できませんでした');const a=new Uint8Array(await r.arrayBuffer());let text='';for(let i=0;i<a.length;i+=32768)text+=String.fromCharCode(...a.subarray(i,i+32768));return {data:btoa(text),mimeType:r.headers.get('content-type')||'audio/mpeg',provider:'voicevox',alignment:[]};}await sleep(1500);}throw Error('VOICEVOXの生成が時間内に完了しませんでした。再試行してください');}
 async function work(){const item=await rpc('video_jobs_claim');if(!item)return;let result=null,error=null;try{if(item.request.action==='generateVoicevoxTts')result=await voicevox(item.request);else{const response=await generate(new Request(BASE+'/functions/v1/video-ai-gemini',{method:'POST',headers:{Origin:ORIGIN,'Content-Type':'application/json'},body:JSON.stringify(item.request)}));result=await response.json();if(!response.ok)throw Error(result.error||'生成に失敗しました');}if(!result?.data)throw Error('生成結果が空でした');if(JSON.stringify(result).length>15000000)throw Error('生成結果が大きすぎます');}catch(e){result=null;error=String((e as Error).message||e).slice(0,800);}await rpc('video_jobs_finish',{p_id:item.id,p_lease:item.lease,p_result:result,p_error:error});await kick();}
 function validate(items:any[]){if(!Array.isArray(items)||!items.length||items.length>120)throw Error('生成の件数を確認してください');return items.map((x:any)=>{if(!Number.isInteger(x.sceneIndex)||x.sceneIndex<0||x.sceneIndex>59||!['image','audio'].includes(x.kind))throw Error('場面の指定が不正です');const b=x.request||{};if(x.kind==='image'){if(b.action!=='generateImage'||!String(b.prompt||'').trim()||String(b.prompt).length>50000)throw Error('画像指示を確認してください');if(!['gemini','openai','auto'].includes(b.imageProvider||'auto'))throw Error('画像AIの指定を確認してください');}else if(!['generateFishTts','generateTts','generateVoicevoxTts'].includes(b.action)||!String(b.text||'').trim()||String(b.text).length>12000)throw Error('音声の文章を確認してください');return {sceneIndex:x.sceneIndex,kind:x.kind,request:b};});}
-Deno.serve(async req=>{if(req.method==='OPTIONS')return reply({});try{if(req.method!=='POST')return reply({error:'Method not allowed'},405);const b=await req.json();if(b.action==='work'){const supplied=req.headers.get('x-video-worker-token');if(!supplied||supplied!==await workerToken())return reply({error:'Forbidden'},403);background(work());return reply({accepted:true});}if(req.headers.get('origin')!==ORIGIN)return reply({error:'Forbidden origin'},403);if(!/^[a-f0-9]{64}$/.test(b.token||'')||!/^[-a-f0-9]{36}$/.test(b.jobId||''))return reply({error:'Invalid session'},401);const owner=await hash(b.token);if(b.action==='create'){const items=validate(b.items);if(JSON.stringify(b.snapshot||{}).length>250000)throw Error('構成が大きすぎます');await rpc('video_jobs_enqueue',{p_id:b.jobId,p_owner:owner,p_snapshot:b.snapshot||{},p_items:items});background(kickParallel(2));return reply({jobId:b.jobId,accepted:true});}
+securityServe(async req=>{if(req.method==='OPTIONS')return reply({});try{if(req.method!=='POST')return reply({error:'Method not allowed'},405);const b=await req.json();if(b.action==='work'){const supplied=req.headers.get('x-video-worker-token');if(!supplied||supplied!==await workerToken())return reply({error:'Forbidden'},403);background(work());return reply({accepted:true});}if(req.headers.get('origin')!==ORIGIN)return reply({error:'Forbidden origin'},403);if(!/^[a-f0-9]{64}$/.test(b.token||'')||!/^[-a-f0-9]{36}$/.test(b.jobId||''))return reply({error:'Invalid session'},401);const owner=await hash(b.token);if(b.action==='create'){const items=validate(b.items);if(JSON.stringify(b.snapshot||{}).length>250000)throw Error('構成が大きすぎます');await rpc('video_jobs_enqueue',{p_id:b.jobId,p_owner:owner,p_snapshot:b.snapshot||{},p_items:items});background(kickParallel(2));return reply({jobId:b.jobId,accepted:true});}
 const jobs=await db('video_background_jobs?id=eq.'+encodeURIComponent(b.jobId)+'&owner_hash=eq.'+owner+'&select=id,snapshot,cancelled,created_at');if(!jobs?.length)return reply({error:'この生成結果は見つかりません。保存期間は30日です。'},404);
 if(b.action==='status'){const items=await db('video_background_items?job_id=eq.'+b.jobId+'&select=id,scene_index,kind,status,error,ordinal&order=ordinal.asc');return reply({job:jobs[0],items});}
 if(b.action==='result'){if(!/^[-a-f0-9]{36}$/.test(b.itemId||''))return reply({error:'Invalid item'},400);const rows=await db('video_background_items?id=eq.'+b.itemId+'&job_id=eq.'+b.jobId+'&status=eq.done&select=result');return rows.length?reply(rows[0].result):reply({error:'まだ完成していません'},409);}
 if(b.action==='cancel'){await db('video_background_jobs?id=eq.'+b.jobId,{cancelled:true},'PATCH');await db('video_background_items?job_id=eq.'+b.jobId+'&status=eq.queued',{status:'cancelled'},'PATCH');return reply({cancelled:true});}
 return reply({error:'Unknown action'},400);}catch(e){return reply({error:String((e as Error).message||e)},400);}});
+
+const SECURITY_ROLES=['owner','office','manager'];
+
+function securityServe(handler: (req: Request, info?: any) => Response | Promise<Response>) {
+ const securityHeaders = {'Access-Control-Allow-Origin':'https://yuubae96-rgb.github.io','Access-Control-Allow-Headers':'authorization, apikey, x-client-info, content-type, x-video-upload-url','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Cache-Control':'no-store','Vary':'Origin','Content-Type':'application/json'};
+ const deny=(status:number,error:string)=>new Response(JSON.stringify({error}),{status,headers:securityHeaders});
+ Deno.serve(async (req:Request, info:any) => {
+  if(req.method==='OPTIONS')return new Response('ok',{headers:securityHeaders});
+  try {
+   if(req.headers.get('x-video-worker-token'))return await handler(req,info);
+   const service=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')||'';
+   const base=Deno.env.get('SUPABASE_URL')||'';
+   const bearer=(req.headers.get('authorization')||'').replace(/^Bearer\s+/i,'');
+   if(service && bearer===service)return await handler(req,info);
+   if(!bearer || bearer.startsWith('sb_'))return deny(401,'ログインが必要です');
+   const ur=await fetch(base+'/auth/v1/user',{headers:{apikey:service,Authorization:'Bearer '+bearer}});
+   if(!ur.ok)return deny(401,'ログインし直してください');
+   const user=await ur.json();
+   if(!user.id || !user.email_confirmed_at || user.is_anonymous)return deny(403,'利用権限がありません');
+   const pr=await fetch(base+'/rest/v1/app_users?user_id=eq.'+encodeURIComponent(user.id)+'&select=role,active',{headers:{apikey:service,Authorization:'Bearer '+service}});
+   if(!pr.ok)return deny(503,'権限の確認に失敗しました');
+   const profiles=await pr.json(),p=profiles[0];
+   if(!p?.active || !SECURITY_ROLES.includes(p.role))return deny(403,'利用権限がありません');
+   const response=await handler(req,info);
+   const headers=new Headers(response.headers);
+   for(const [k,v] of Object.entries(securityHeaders))if(k!=='Content-Type')headers.set(k,v);
+   return new Response(response.body,{status:response.status,headers});
+  } catch { return deny(503,'認証の確認に失敗しました'); }
+ });
+}
