@@ -77,7 +77,34 @@ return json({...parsed,provider:candidate,...(errors.length?{fallbackFrom:errors
 }
 return json({error:errors.map(e=>`${e.provider==="openai"?"ChatGPT":"Gemini"}：${e.message}`).join(" / "),attempts:errors},502,headers)}
 
-if(action==="checkReadings"){const text=String(body.text||"").trim().slice(0,30000);if(!text)throw new Error("読み方チェック対象がありません");const prompt=`次の日本語ナレーションから、読み間違えやすい人名・地名・歴史用語・固有名詞・難読語だけを抽出し、文脈に合う標準的な読みをひらがなで示してください。一般的で簡単な語は除外。必ず有効なJSONだけを返す。形式: {"items":[{"term":"表記","reading":"よみ","note":"短い確認メモ"}]}。同じ語は1回だけ。対象文:\n${text}`;const r=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":key},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:.1,responseMimeType:"application/json"}})});const data=await r.json();if(!r.ok)throw new Error(data?.error?.message||`Reading check failed ${r.status}`);const out=(data?.candidates?.[0]?.content?.parts||[]).map((p:any)=>p?.text||"").join("").trim().replace(/^\`\`\`json\s*/i,"").replace(/\`\`\`$/,"").trim();let parsed;try{parsed=JSON.parse(out)}catch{throw new Error("読み方チェックの結果を解析できませんでした")};return json({items:Array.isArray(parsed?.items)?parsed.items:[]},200,headers)}
+if(action==="checkReadings"){
+const text=String(body.text||"").trim().slice(0,30000);if(!text)throw new Error("読み方チェック対象がありません");
+const prompt=`次の日本語ナレーションから、読み間違えやすい人名・地名・歴史用語・固有名詞・難読語だけを抽出し、文脈に合う標準的な読みをひらがなで示してください。一般的で簡単な語は除外。必ず有効なJSONだけを返す。形式: {"items":[{"term":"表記","reading":"よみ","note":"短い確認メモ"}]}。同じ語は1回だけ。対象文:\n${text}`;
+const errors:string[]=[];
+for(const provider of ["gemini","openai"]){
+const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),25000);
+try{
+let url:string,init:RequestInit;
+if(provider==="gemini"){
+if(!key)throw new Error("Gemini APIキーが未設定です");
+url="https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent";
+init={method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":key},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:.1,responseMimeType:"application/json"}})};
+}else{
+const openaiKey=Deno.env.get("OPENAI_API_KEY");if(!openaiKey)throw new Error("ChatGPT APIキーが未設定です");
+url="https://api.openai.com/v1/chat/completions";
+init={method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${openaiKey}`},body:JSON.stringify({model:"gpt-4.1-mini",messages:[{role:"user",content:prompt}],temperature:.1,response_format:{type:"json_object"}})};
+}
+const r=await fetch(url,{...init,signal:controller.signal}),data=await r.json();
+if(!r.ok)throw new Error(data?.error?.message||`HTTP ${r.status}`);
+const out=provider==="openai"?data?.choices?.[0]?.message?.content:(data?.candidates?.[0]?.content?.parts||[]).map((p:any)=>p?.text||"").join("");
+const parsed=JSON.parse(String(out||"").trim().replace(/^```(?:json)?\s*/i,"").replace(/```$/,"").trim());
+if(!Array.isArray(parsed?.items))throw new Error("読み方チェックの回答形式が不正です");
+const seen=new Set<string>();const items=parsed.items.filter((x:any)=>typeof x?.term==="string"&&typeof x?.reading==="string"&&x.term.trim()&&x.reading.trim()&&text.includes(x.term)&&!seen.has(x.term)&&seen.add(x.term)).slice(0,100);
+return json({items,provider,...(errors.length?{fallbackFrom:"gemini"}:{})},200,headers);
+}catch(e){errors.push(provider+": "+((e as Error).name==="AbortError"?"タイムアウト":(e as Error).message))}finally{clearTimeout(timer)}
+}
+return json({items:[],provider:"dictionary",aiUnavailable:true,message:"AIを利用できないため、内蔵辞書と手入力で確認してください。"},200,headers);
+}
 if(action==="generateImage"){const prompt=String(body.prompt||"").trim().slice(0,36000),aspectRatio=String(body.aspectRatio)==="9:16"?"9:16":"16:9";if(!prompt)throw new Error("Image prompt is required");const continuity=typeof body.referenceImage==="string"?parseDataUrl(body.referenceImage):null;const protagonist=typeof body.protagonistReference==="string"?parseDataUrl(body.protagonistReference):null;const styleRef=typeof body.styleReference==="string"?parseDataUrl(body.styleReference):null;const identityRef=protagonist||continuity;const composition=aspectRatio==="9:16"?"OUTPUT FORMAT: vertical 9:16 portrait for YouTube Shorts. Keep the protagonist and important action inside the central safe area; use the vertical frame intentionally and avoid essential details at extreme side edges.":"OUTPUT FORMAT: horizontal 16:9 widescreen for standard YouTube.";const finalPrompt=`${visualStyleLock(String(body.style||""))}\n\n${LIKENESS_RULE}\n\n${identityRef?CHARACTER_LOCK_RULE:""}\n\n${styleRef?STYLE_REFERENCE_RULE:""}\n\n${composition}\n\nSCENE CONTENT: ${prompt}\n\nFinal check before rendering: follow the selected visual style, one frame only, historically recognizable named people, ZERO readable text or symbols.${identityRef?" Preserve protagonist identity only when that protagonist belongs in this scene.":""}${styleRef?" Match the supplied style reference for visual treatment while not copying its subject matter.":""}`;const parts:any[]=[];if(identityRef){parts.push({text:protagonist?"PROTAGONIST / CHARACTER REFERENCE IMAGE. Use for identity only when this protagonist appears in the scene.":"CONTINUITY REFERENCE IMAGE. Use only to help preserve a recurring protagonist when appropriate."});parts.push({inlineData:{mimeType:identityRef.mimeType,data:identityRef.data}})}if(styleRef){parts.push({text:"VISUAL STYLE REFERENCE IMAGE. Use only for color, lighting, texture, line quality and mood; do not copy subject matter."});parts.push({inlineData:{mimeType:styleRef.mimeType,data:styleRef.data}})}parts.push({text:finalPrompt});
 const provider=String(body.imageProvider||"auto").toLowerCase();
 async function openAiImage(reason:string){
@@ -130,3 +157,4 @@ function securityServe(handler: (req: Request, info?: any) => Response | Promise
   } catch { return deny(503,'認証の確認に失敗しました'); }
  });
 }
+
