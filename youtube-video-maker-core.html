@@ -167,11 +167,12 @@ $('exportVideo').onclick=async()=>{const btn=$('exportVideo'),status=$('exportSt
 (()=>{if(window.__readingRegressionGuard)return;window.__readingRegressionGuard=true;
 const KEY='videoReadingDictionaryV1';
 const KNOWN={'宮城事件':'きゅうじょうじけん','重光葵':'しげみつまもる','阿南惟幾':'あなみこれちか','近衛文麿':'このえふみまろ','鈴木貫太郎':'すずきかんたろう','木戸幸一':'きどこういち','東郷茂徳':'とうごうしげのり','昭和天皇':'しょうわてんのう','玉音放送':'ぎょくおんほうそう','御前会議':'ごぜんかいぎ','大本営':'だいほんえい','陳勝呉広の乱':'ちんしょうごこうのらん','陳勝':'ちんしょう','呉広':'ごこう','始皇帝':'しこうてい','項羽':'こうう','劉邦':'りゅうほう','楚漢戦争':'そかんせんそう','鴻門の会':'こうもんのかい','項伯':'こうはく','張良':'ちょうりょう','項荘':'こうそう','樊噲':'はんかい','韓信':'かんしん','蕭何':'しょうか','背水の陣':'はいすいのじん','趙':'ちょう','楚':'そ','秦':'しん','群雄割拠':'ぐんゆうかっきょ','国士無双':'こくしむそう'};
-const load=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'{}')||{}}catch{return{}}};
+const DEFAULT_READINGS=Object.fromEntries(['陳勝呉広の乱','陳勝','呉広','始皇帝','項羽','劉邦','楚漢戦争','鴻門の会','項伯','張良','項荘','樊噲','韓信','蕭何','背水の陣','趙','楚','秦','群雄割拠','国士無双'].map(term=>[term,KNOWN[term]]));
+const load=()=>{try{return {...DEFAULT_READINGS,...(JSON.parse(localStorage.getItem(KEY)||'{}')||{})}}catch{return {...DEFAULT_READINGS}}};
 const save=o=>localStorage.setItem(KEY,JSON.stringify(o));
 const parse=t=>{const o={};String(t||'').split(/\n/).forEach(line=>{const m=line.match(/^\s*(.+?)\s*(?:=|→|=>|：|:)\s*(.+?)\s*$/);if(m)o[m[1]]=m[2]});return o};
 const txt=o=>Object.entries(o).map(([a,b])=>a+' = '+b).join('\n');
-const apply=(v,o=load())=>{let out=String(v||'');Object.entries(o).sort((a,b)=>b[0].length-a[0].length).forEach(([a,b])=>out=out.split(a).join(b));return out};
+const apply=(v,o=load())=>{let out=String(v||'');Object.entries(o).sort((a,b)=>b[0].length-a[0].length).forEach(([a,b])=>{if(a==='秦'&&b==='しん'){out=out.replace(/秦(?!野|氏|さん|様|先生|選手|社長|部長|課長|姓)/g,b)}else out=out.split(a).join(b)});return out};
 function scenes(){return [...document.querySelectorAll('.scene')]}
 function applyAll(){const o=load();let n=0;scenes().forEach((row,i)=>{const nar=row.querySelector('.nar')?.value||'',r=row.querySelector('.ttsNar');if(r){const v=narrationBreaths(apply(nar,o));if(r.value!==v){r.value=v;n++}}});return n}
 function scan(){const o=load(),found=[];scenes().forEach((row,i)=>{const nar=row.querySelector('.nar')?.value||'';Object.entries(KNOWN).forEach(([term,reading])=>{if(nar.includes(term)&&!o[term]&&!found.some(x=>x.term===term))found.push({term,reading,scene:i+1})})});return found}
