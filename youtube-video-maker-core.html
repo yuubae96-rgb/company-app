@@ -186,4 +186,4 @@ const initializedScenes=new WeakSet();
 function initializeNewScenes(){const o=load();scenes().forEach(row=>{if(initializedScenes.has(row))return;initializedScenes.add(row);if(row.dataset.readingPreserved==='1')return;const r=row.querySelector('.ttsNar'),nar=row.querySelector('.nar')?.value||'';if(r&&(!r.value||r.value===nar))r.value=narrationBreaths(apply(nar,o))})}
 new MutationObserver(()=>{install();initializeNewScenes()}).observe(document.body,{childList:true,subtree:true});install();initializeNewScenes();
 })();
-</script><script src="video-background-jobs.js?v=20261009-storage-timeout"></script></body></html>
+</script><script src="video-background-jobs.js?v=20261009-result-recovery"></script></body></html>
