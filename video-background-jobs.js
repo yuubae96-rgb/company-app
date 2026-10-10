@@ -40,7 +40,7 @@ function audioRequest(i){const r=rows()[i],text=narrationBreaths(r.querySelector
 function imageRequest(i){const prompt=illustratedPrompt(imageContextPrompt(i),selectedStyle());if(!rows()[i].querySelector('.nar').value.trim()&&!rows()[i].querySelector('.prompt').value.trim())throw Error('場面'+(i+1)+'の文章または画像指示を入力してください');const protagonistReference=$('protagonistRefPreview')?.getAttribute('src')||'',styleReference=$('styleRefPreview')?.getAttribute('src')||'',name=$('protagonistName')?.value.trim()||'';const identity=protagonistReference?'\n【主人公の同一人物固定】基準画像'+(name?'の「'+name+'」':'の主人公')+'を文脈に応じて同じ人物として描く。全体の原稿と前後場面を読み、彼・この青年・創業者などが同じ主人公を指す場合は同一人物にする。顔の骨格・目・鼻・口・髪の生え際・体格を維持し、年代が変わる時だけ自然に加齢させる。別人の場面には入れない。':'';return japaneseImageRequest({action:'generateImage',prompt:prompt+identity,protagonistReference,styleReference,style:selectedStyle(),topic:$('topic').value,sceneIndex:i+1,referenceImage:'',aspectRatio:$('videoFormat').value,imageProvider:$('imageProvider').value})}
 function itemsFor(kinds,all=false,indices=rows().map((_,i)=>i)){const items=[];for(const i of indices)for(const kind of kinds){if(!all&&(kind==='image'?$('pic'+i).dataset.image:$('audio'+i).getAttribute('src')&&rows()[i].dataset.audioOutdated!=='1'))continue;items.push({sceneIndex:i,kind,request:kind==='image'?imageRequest(i):audioRequest(i)})}return items}
 function remoteSnapshot(snapshot){return{model:{...snapshot.model,scenes:snapshot.model.scenes.map(({savedImage,savedAudio,...s})=>s)},forms:snapshot.forms}}
-async function submit(record){await request('create',{snapshot:remoteSnapshot(record.snapshot),items:record.items},record);record.submitted=true;await persist(()=>put(record),record)}
+async function submit(record){await request('create',{snapshot:remoteSnapshot(record.snapshot),items:record.items},record);record.submitted=true}
 
 async function bounded(task,label){let timer;try{return await Promise.race([task,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error(label+'が時間内に完了しませんでした。生成ボタンから再試行できます。')),20000)})])}finally{clearTimeout(timer)}}
 async function start(items){
@@ -52,8 +52,8 @@ async function start(items){
  try{
   failureNotice();message('構成を保存して、サーバーに作成を依頼しています。受付完了までこの画面でお待ちください…');
   const snapshot=await bounded(capture(),'構成・素材の読み込み');record={id:crypto.randomUUID(),createdAt:new Date().toISOString(),snapshot,items,results:{},submitted:false,finished:false,linkedJobIds:previous?[previous.id,...(previous.linkedJobIds||[]),previous.companionJobId].filter(Boolean):[]};
-  await persist(()=>put(record),record);await submit(record);if(resetting||currentEpoch!==epoch)return false;
-  try{localStorage.setItem(POINTER,record.id)}catch(e){storageUnavailable=true;record.localSaveWarning=true}if(previous)recordsCache.set(previous.id,previous);recordsCache.set(record.id,record);active=record;trackTargets([record,...await projectRecords(previous)]);record.visibleStatus=[...targets.values()].map(x=>x.item);markPending(items);lock(true);await persist(()=>put(record),record)
+  await submit(record);if(resetting||currentEpoch!==epoch)return false;
+  try{localStorage.setItem(POINTER,record.id)}catch(e){storageUnavailable=true;record.localSaveWarning=true}if(previous)recordsCache.set(previous.id,previous);recordsCache.set(record.id,record);active=record;trackTargets([record,...await projectRecords(previous)]);record.visibleStatus=[...targets.values()].map(x=>x.item);markPending(items);lock(true);void persist(()=>put(record),record)
   message('サーバーが受け付けました。画像・音声・個別の作り直しも、この画面を離れている間に進みます。');schedule(1000);return true;
  }catch(e){const text='受付できませんでした：'+generationError(e.message);for(const x of items){const row=rows()[x.sceneIndex];if(row)row.dataset[x.kind+'Generating']='';const button=row?.querySelector(x.kind==='audio'?'.ttsBtn':'.imgBtn');if(button)button.textContent=x.kind==='audio'?'音声を再試行':'画像を再試行';const state=x.kind==='audio'?$('audioState'+x.sceneIndex):null;if(state)state.textContent=text}failureNotice(text);message(text+'。生成ボタンから再度開始できます。');if(!previous)lock(false);updateExportReadiness();return false}
  finally{starting=false;startingKinds.clear();bindButtons();const next=launchQueue.shift();if(next)start(next.items).then(next.resolve)}
@@ -65,9 +65,9 @@ async function poll(manual=false){
  if(resetting||busy||starting||!active)return;busy=true;
  const primary=active,currentEpoch=epoch;
  try{
-  const records=await projectRecords(primary);if(resetting||currentEpoch!==epoch)return;
+  const records=await projectRecords(primary);if(resetting||starting||currentEpoch!==epoch)return;
   for(const record of records){
-   const d=await request('status',{},record);if(resetting||currentEpoch!==epoch||active!==primary)return;record.status=d.items;
+   const d=await request('status',{},record);if(resetting||starting||currentEpoch!==epoch||active!==primary)return;record.status=d.items;
    record.finished=!d.items.some(x=>['queued','running'].includes(x.status));
   }
   trackTargets(records);
@@ -88,18 +88,18 @@ async function poll(manual=false){
      if(row&&item.status!=='done')row.querySelector(item.kind==='image'?'.imgBtn':'.ttsBtn').textContent=running?(item.kind==='image'?'画像作成中…':'音声作成中…'):(item.kind==='image'?'画像を再試行':'音声を再試行');
     }
     if(item.status==='done'&&current){
-     if(!record.results[item.id]){const result=await request('result',{itemId:item.id},record);if(resetting||currentEpoch!==epoch||active!==primary)return;await saveResult(item,result,record)}
+     if(!record.results[item.id]){const result=await request('result',{itemId:item.id},record);if(resetting||starting||currentEpoch!==epoch||active!==primary)return;await saveResult(item,result,record)}
      else applyResult(record.results[item.id],record);
     }
    }
    await persist(()=>put(record),record)
-   if(resetting||currentEpoch!==epoch||active!==primary)return;
+   if(resetting||starting||currentEpoch!==epoch||active!==primary)return;
   }
   primary.companionStatus=records.slice(1).flatMap(r=>r.status||[]);primary.companionPending=pending;primary.visibleStatus=[...targets.values()].map(x=>x.item.kind==='image'&&localImages.has(x.item.scene_index)?{...x.item,status:'done'}:x.item);
   failureNotice(failed?`生成失敗 ${failed}件：${generationError(firstError)}`:'');
   showBuildProgress({pending,failed,cancelled,firstError});
   $('backgroundRetry').hidden=pending||!failed;lock(pending);if(pending)schedule();
- }catch(e){if(currentEpoch===epoch&&!resetting){message('進捗の読み込み待ち：'+e.message+'。サーバーでの処理は続いています。');schedule(10000)}}
+ }catch(e){if(currentEpoch===epoch&&!resetting&&!starting){message('進捗の読み込み待ち：'+e.message+'。サーバーでの処理は続いています。');schedule(10000)}}
  finally{busy=false}
 }
 async function cancel(){if(!active||!confirm('作成を中止しますか？作成中の処理は最後まで実行し、未開始分を中止します。'))return;try{for(const record of await projectRecords())await request('cancel',{},record);await poll(true)}catch(e){message('中止を受け付けられませんでした：'+e.message)}}
