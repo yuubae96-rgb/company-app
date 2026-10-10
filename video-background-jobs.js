@@ -52,8 +52,8 @@ async function start(items){
  try{
   failureNotice();message('構成を保存して、サーバーに作成を依頼しています。受付完了までこの画面でお待ちください…');
   const snapshot=await bounded(capture(),'構成・素材の読み込み');record={id:crypto.randomUUID(),createdAt:new Date().toISOString(),snapshot,items,results:{},submitted:false,finished:false,linkedJobIds:previous?[previous.id,...(previous.linkedJobIds||[]),previous.companionJobId].filter(Boolean):[]};
-  await bounded(put(record),'端末への保存');await submit(record);if(resetting||currentEpoch!==epoch)return false;
-  localStorage.setItem(POINTER,record.id);active=record;trackTargets([record,...await projectRecords(previous)]);record.visibleStatus=[...targets.values()].map(x=>x.item);markPending(items);lock(true);await persist(()=>put(record),record)
+  await persist(()=>put(record),record);await submit(record);if(resetting||currentEpoch!==epoch)return false;
+  try{localStorage.setItem(POINTER,record.id)}catch(e){storageUnavailable=true;record.localSaveWarning=true}if(previous)recordsCache.set(previous.id,previous);recordsCache.set(record.id,record);active=record;trackTargets([record,...await projectRecords(previous)]);record.visibleStatus=[...targets.values()].map(x=>x.item);markPending(items);lock(true);await persist(()=>put(record),record)
   message('サーバーが受け付けました。画像・音声・個別の作り直しも、この画面を離れている間に進みます。');schedule(1000);return true;
  }catch(e){const text='受付できませんでした：'+generationError(e.message);for(const x of items){const row=rows()[x.sceneIndex];if(row)row.dataset[x.kind+'Generating']='';const button=row?.querySelector(x.kind==='audio'?'.ttsBtn':'.imgBtn');if(button)button.textContent=x.kind==='audio'?'音声を再試行':'画像を再試行';const state=x.kind==='audio'?$('audioState'+x.sceneIndex):null;if(state)state.textContent=text}failureNotice(text);message(text+'。生成ボタンから再度開始できます。');if(!previous)lock(false);updateExportReadiness();return false}
  finally{starting=false;startingKinds.clear();bindButtons();const next=launchQueue.shift();if(next)start(next.items).then(next.resolve)}
