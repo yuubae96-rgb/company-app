@@ -8,7 +8,7 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}</style>
 </head>
 <body>
-<iframe id="app" src="youtube-video-maker-core.html?v=20261011-audio-identity" allow="microphone;camera"></iframe>
+<iframe id="app" src="youtube-video-maker-core.html?v=20261011-silent-export" allow="microphone;camera"></iframe>
 <script>
 const frame=document.getElementById('app');
 let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=null,currentStream=null,currentAudioCtx=null;
@@ -117,6 +117,7 @@ frame.addEventListener('load',()=>{
     const list=w.getScenesReady?.()||[];
     if(!list.length||list.some(s=>!s.image||!s.audio)){status.textContent='全シーンのAI画像とAIナレーションを先に作成してください。';return}
     if(!w.MediaRecorder){status.textContent='このブラウザは動画書き出しに対応していません。';return}
+    w.stopPreview?.();d.querySelectorAll('audio,video').forEach(media=>media.pause());
     btn.dataset.exportBusy='1';btn.disabled=true;cancel.style.display='block';exportCancelled=false;dl.style.display='none';bar.style.width='0%';status.textContent=getAspect()==='9:16'?'YouTubeショートを1080×1920で書き出し準備中…':'iPhoneで見やすい動画形式で書き出し準備中…';
     if(lastExportUrl){URL.revokeObjectURL(lastExportUrl);lastExportUrl=''}
     let rec=null,stream=null,audioCtx=null;
@@ -144,7 +145,7 @@ frame.addEventListener('load',()=>{
           recordingBuffer=audioCtx.createBuffer(buffer.numberOfChannels,buffer.length+Math.ceil(tailSeconds*buffer.sampleRate),buffer.sampleRate);
           for(let channel=0;channel<buffer.numberOfChannels;channel++)recordingBuffer.getChannelData(channel).set(buffer.getChannelData(channel));
         }
-        const source=audioCtx.createBufferSource();source.buffer=recordingBuffer;source.connect(dest);source.connect(audioCtx.destination);
+        const source=audioCtx.createBufferSource();source.buffer=recordingBuffer;source.connect(dest);
         await audioCtx.resume();const start=audioCtx.currentTime+.05,endAudio=start+recordingBuffer.duration;
         let ended=false;source.onended=()=>ended=true;currentAudio={pause(){try{source.stop()}catch(_){}}};source.start(start);
         const drain=Math.max(1,(audioCtx.baseLatency||0)+(audioCtx.outputLatency||0)+.25);
