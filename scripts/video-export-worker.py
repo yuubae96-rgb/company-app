@@ -1,6 +1,6 @@
 import json,os,time,urllib.request,urllib.parse,tempfile,subprocess,math
 from pathlib import Path
-from PIL import Image,ImageDraw,ImageFont
+from PIL import Image,ImageDraw,ImageFont,ImageColor
 
 API='https://vnnvuxccazkdzwqjmntz.supabase.co/functions/v1/video-export'
 AUD='video-export-vnnvuxccazkdzwqjmntz'
@@ -14,6 +14,12 @@ def api(action,**kwargs):
 def font(size):
     paths=['/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc','/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']
     return ImageFont.truetype(next(p for p in paths if Path(p).exists()),max(1,int(size)))
+def color(value):
+    value=str(value)
+    if value.startswith('rgba('):
+        parts=[float(x.strip()) for x in value[5:-1].split(',')]
+        return tuple(int(max(0,min(255,x))) for x in parts[:3])+(int(max(0,min(1,parts[3]))*255),)
+    return ImageColor.getrgb(value)
 def overlay(path,manifest,scene,caption):
     w,h=manifest['width'],manifest['height'];im=Image.new('RGBA',(w,h),(0,0,0,0));d=ImageDraw.Draw(im)
     title=scene.get('title','') if manifest.get('showTitle',True) else ''
@@ -21,7 +27,7 @@ def overlay(path,manifest,scene,caption):
         fs=h*.045;f=font(fs);maxw=w*.72;padx=w*.012;pady=h*.01
         while d.textlength(title,font=f)>maxw-padx*2 and fs>8:fs-=1;f=font(fs)
         x,y=w*.04,h*.05;tw=min(maxw,d.textlength(title,font=f)+padx*2);th=fs*1.25+pady*2
-        d.rounded_rectangle((x,y,x+tw,y+th),radius=h*.012,fill=manifest.get('titleColor','#682635'))
+        d.rounded_rectangle((x,y,x+tw,y+th),radius=h*.012,fill=color(manifest.get('titleColor','#682635')))
         d.text((x+padx,y+pady),title,font=f,fill='white',anchor='lt')
     lines=str(caption or '').split('\n')[:2]
     if caption and lines:
