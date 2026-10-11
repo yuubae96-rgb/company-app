@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>書き出しの即時起動設定</title>
+<script src="security-auth.js?v=20261009-account2" data-project="vnnvuxccazkdzwqjmntz"></script>
+<style>*{box-sizing:border-box}body{margin:0;background:#f2f4f7;color:#172033;font-family:system-ui,-apple-system,sans-serif}main{max-width:640px;margin:auto;padding:24px 16px}h1{font-size:23px}p,li{font-size:15px;line-height:1.8}section{background:#fff;padding:20px;border:1px solid #dce1e8;border-radius:15px;margin:16px 0}a.button,button{display:block;width:100%;padding:14px;background:#263b6a;color:#fff;text-align:center;font-size:16px;font-weight:800;border:0;border-radius:10px;text-decoration:none}label{display:block;font-weight:700;margin:20px 0 8px}input{width:100%;font-size:16px;padding:13px;border:1px solid #ccd3de;border-radius:10px}button{margin-top:12px}button:disabled{opacity:.5}#status{white-space:pre-line;line-height:1.8;margin:14px 0;font-weight:700}small{display:block;line-height:1.7;color:#607084;margin-top:10px}[hidden]{display:none!important}</style></head>
+<body><main><h1>書き出しの即時起動設定</h1><p>最初に管理者が1回設定します。設定後は、動画の受付時にサーバーへ起動を要求し、定期チェック待ちを使いません。</p>
+<div id="status" role="status">設定状況を確認しています…</div>
+<section id="settings" hidden><h2 style="font-size:18px">① 専用キーを作る</h2>
+<a class="button" href="https://github.com/settings/personal-access-tokens/new?name=VideoExportStart&amp;description=Start%20company-app%20video%20exports&amp;target_name=yuubae96-rgb&amp;expires_in=90&amp;actions=write" target="_blank" rel="noopener">GitHubのキー作成画面を開く</a>
+<ol><li>Repository access → <b>Only select repositories</b> を選び、<b>company-app</b> だけを指定します。</li><li>Repository permissions → <b>Actions：Read and write</b> を確認します。</li><li><b>Generate token</b> を押し、表示された <b>github_pat_</b> で始まるキーをコピーします。</li></ol>
+<label for="token">② キーをここへ貼り付け</label><input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_ で始まる専用キー">
+<button id="save" type="button">③ 保存して起動権限を確認</button>
+<small>キーはサーバーに暗号化して保存します。チャットへ貼り付ける必要はありません。キーの期限が切れた場合は、このページで更新できます。</small></section>
+<section><a class="button" href="youtube-video-maker.html?v=20261012-immediate-start1">YouTube動画作成へ戻る</a><p><a href="https://yuubae96-rgb.github.io/nameplate-app/youtube-video-2.html?v=20261012-immediate-start1">YouTube動画作成2へ戻る</a></p></section>
+</main><script>
+const status=document.getElementById('status'),settings=document.getElementById('settings'),field=document.getElementById('token'),button=document.getElementById('save');
+async function call(action,data={}){const session=await window.securityRequireSession('vnnvuxccazkdzwqjmntz');const response=await fetch('https://vnnvuxccazkdzwqjmntz.supabase.co/functions/v1/video-export',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token},body:JSON.stringify({action,...data})});const result=await response.json();if(!response.ok)throw Error(result.error||'設定を確認できませんでした。');return result}
+call('launcherStatus').then(result=>{settings.hidden=!result.canConfigure;status.textContent=result.canConfigure?(result.ready?'設定済みです。受付時にサーバーへ直接起動を要求します。更新する場合は下の欄を使ってください。':'専用キーを1回設定すると、即時起動を有効にできます。'):'この設定は管理者のアカウントで開いてください。'}).catch(e=>status.textContent=e.message);
+button.onclick=async()=>{const token=field.value.trim();if(!token){status.textContent='専用キーを貼り付けてください。';return}field.value='';button.disabled=true;status.textContent='起動権限を確認しています…';try{const result=await call('configureLauncher',{token});status.textContent=result.ready?'設定完了。今後は受付時にサーバーへ直接起動を要求します。動画作成アプリへ戻ってください。':'設定できませんでした。'}catch(e){status.textContent=e.message}finally{button.disabled=false}};
+</script></body></html>
