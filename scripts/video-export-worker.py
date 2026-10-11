@@ -69,8 +69,9 @@ def render(job,root,progress=lambda n:None):
     return out
 def main():
     if os.environ.get('GITHUB_EVENT_NAME')=='push':api('selftest')
-    for _ in range(5):
-        job=api('claim').get('job')
+    target=os.environ.get('VIDEO_EXPORT_JOB_ID','')
+    for _ in range(1 if target else 5):
+        job=api('claim',**({'id':target} if target else {})).get('job')
         if not job:return
         try:
             with tempfile.TemporaryDirectory() as td:
