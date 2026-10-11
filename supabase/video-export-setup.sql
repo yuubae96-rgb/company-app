@@ -16,7 +16,7 @@ begin
   if (select count(*) from video_export_private.jobs where user_id=p_user and status in ('uploading','queued','running') and created_at>now()-interval '2 hours')>=3 then raise exception '同時に書き出せる動画は3件までです';end if;
   insert into video_export_private.jobs(id,user_id,manifest,assets) values(p_id,p_user,p_manifest,p_assets) returning * into j;
  elsif p_action='claim' then
-  select * into j from video_export_private.jobs where status='queued' or (status='running' and updated_at<now()-interval '10 minutes') order by created_at for update skip locked limit 1;
+  select * into j from video_export_private.jobs where (p_id is null or id=p_id) and (status='queued' or (status='running' and updated_at<now()-interval '10 minutes')) order by created_at for update skip locked limit 1;
   if j.id is null then return null;end if;
   update video_export_private.jobs set status='running',lease=gen_random_uuid(),updated_at=now(),error=null where id=j.id returning * into j;
  elsif p_action in ('progress','done','failed') then
