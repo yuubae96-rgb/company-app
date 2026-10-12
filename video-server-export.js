@@ -26,10 +26,21 @@ function launcherPanel(){
 }
 
 function clearDownload(){if(downloadCache)URL.revokeObjectURL(downloadCache.url);downloadCache=null;const dl=$(second?'saveLink':'downloadVideo');if(dl){dl.removeAttribute('href');dl.style.display='none';dl.onclick=null;dl.removeAttribute('aria-disabled')}}
+// Keep Safari from navigating the application iframe when saving a blob.
+function bindDownload(dl){
+ dl.removeAttribute('target');
+ dl.onclick=e=>{
+  e.preventDefault();e.stopImmediatePropagation();
+  if(!downloadCache?.url)return;
+  let owner=window;
+  try{while(owner!==owner.parent&&owner.parent.document)owner=owner.parent}catch{}
+  const a=owner.document.createElement('a');a.href=downloadCache.url;a.download=downloadName();a.style.display='none';owner.document.body.appendChild(a);a.click();a.remove();
+ };
+}
 function downloadName(){return (($('topic')?.value||'youtube-video').replace(/[\\/:*?"<>|]/g,'_').slice(0,100)||'youtube-video')+'.mp4'}
 async function prepareDownload(d,id){
  const dl=$(second?'saveLink':'downloadVideo');if(!dl)return;
- if(downloadCache?.id===id){dl.href=downloadCache.url;dl.download=downloadName();dl.textContent='完成した動画をiPhone・端末へ保存（MP4）';dl.onclick=null;dl.removeAttribute('target');dl.removeAttribute('aria-disabled');dl.style.display='block';return}
+ if(downloadCache?.id===id){dl.href=downloadCache.url;dl.download=downloadName();dl.textContent='完成した動画をiPhone・端末へ保存（MP4）';bindDownload(dl);dl.removeAttribute('aria-disabled');dl.style.display='block';return}
  if(downloadTask?.id===id)return downloadTask.promise;
  clearDownload();dl.style.display='block';dl.textContent='保存する動画を準備中…';dl.setAttribute('aria-disabled','true');dl.onclick=e=>{e.preventDefault();message('iPhone・端末へ保存する動画を準備しています。完了すると保存ボタンが使えます。')};
  const task={id,promise:null};downloadTask=task;
