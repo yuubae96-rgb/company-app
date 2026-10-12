@@ -1,6 +1,6 @@
 (()=>{
 if(window.__videoServerExport)return;window.__videoServerExport=true;
-const $=id=>document.getElementById(id),second=!!$('makeScript'),ENDPOINT='https://vnnvuxccazkdzwqjmntz.supabase.co/functions/v1/video-export',KEY='videoServerExportV1-'+(second?'2':'1');let pending=false,timer=null,current=null;
+const $=id=>document.getElementById(id),second=!!$('makeScript'),ENDPOINT='https://vnnvuxccazkdzwqjmntz.supabase.co/functions/v1/video-export',KEY='videoServerExportV1-'+(second?'2':'1');let pending=false,timer=null,current=null,downloadCache=null,downloadTask=null;
 try{current=JSON.parse(localStorage.getItem(KEY)||'null')}catch{}
 const status=()=>$(second?'videoStatus':'exportStatus'),button=()=>$(second?'makeVideo':'exportVideo');
 function message(text){const el=status();if(el)el.textContent=text}
@@ -25,6 +25,28 @@ function launcherPanel(){
  api('launcherStatus').then(d=>{panel.hidden=!d.canConfigure;if(d.canConfigure){$('videoLauncherStatus').textContent=d.ready?'専用キーは設定済みです。受付時に直接起動を要求します。':'専用キーの設定が必要です。';panel.open=!d.ready}}).catch(()=>{});
 }
 
+function clearDownload(){if(downloadCache)URL.revokeObjectURL(downloadCache.url);downloadCache=null;const dl=$(second?'saveLink':'downloadVideo');if(dl){dl.removeAttribute('href');dl.style.display='none';dl.onclick=null;dl.removeAttribute('aria-disabled')}}
+function downloadName(){return (($('topic')?.value||'youtube-video').replace(/[\\/:*?"<>|]/g,'_').slice(0,100)||'youtube-video')+'.mp4'}
+async function prepareDownload(d,id){
+ const dl=$(second?'saveLink':'downloadVideo');if(!dl)return;
+ if(downloadCache?.id===id){dl.href=downloadCache.url;dl.download=downloadName();dl.textContent='完成した動画をiPhone・端末へ保存（MP4）';dl.onclick=null;dl.removeAttribute('target');dl.removeAttribute('aria-disabled');dl.style.display='block';return}
+ if(downloadTask?.id===id)return downloadTask.promise;
+ clearDownload();dl.style.display='block';dl.textContent='保存する動画を準備中…';dl.setAttribute('aria-disabled','true');dl.onclick=e=>{e.preventDefault();message('iPhone・端末へ保存する動画を準備しています。完了すると保存ボタンが使えます。')};
+ const task={id,promise:null};downloadTask=task;
+ task.promise=(async()=>{try{
+  message('動画が完成しました。iPhone・端末へ直接保存できるよう準備しています…');
+  let r=await fetch(d.url);if(!r.ok){const fresh=await api('status',{id});if(fresh.status!=='done'||!fresh.url)throw Error('完成した動画を取得できません');r=await fetch(fresh.url)}
+  if(!r.ok)throw Error('動画を取得できませんでした。通信を確認してください。');
+  const bytes=await r.blob();if(!bytes.size)throw Error('動画データが空です。');
+  if(current?.id!==id)return;
+  const blob=bytes.type==='video/mp4'?bytes:new Blob([bytes],{type:'video/mp4'});downloadCache={id,url:URL.createObjectURL(blob)};
+  await prepareDownload(d,id);
+  const player=$(second?'resultVideo':'completedVideo');if(player)player.src=downloadCache.url;
+  message('動画が完成しました。「完成した動画をiPhone・端末へ保存」を押すと直接ダウンロードできます。');
+ }catch(e){if(current?.id!==id)return;dl.removeAttribute('href');dl.textContent='保存の準備を再試行';dl.removeAttribute('aria-disabled');dl.onclick=ev=>{ev.preventDefault();prepareDownload(d,id)};message('保存の準備に失敗しました：'+e.message+'。「保存の準備を再試行」を押してください。');}
+ finally{if(downloadTask===task)downloadTask=null}})();
+ return task.promise;
+}
 function save(){if(current)localStorage.setItem(KEY,JSON.stringify(current));else localStorage.removeItem(KEY)}
 function captionList(s,duration){const out=[];let start=0,last='';const caption=t=>second?speechCaption(s,t,duration):subtitleAt(s.text,t,duration,s.alignment||[]);for(let t=0;t<duration;t+=.1){const text=String(caption(t)||'');if(text!==last){if(last)out.push({start,end:Math.min(duration,t),text:last});start=t;last=text;}}if(last)out.push({start,end:duration,text:last});return out;}
 async function start(){
@@ -32,7 +54,7 @@ async function start(){
  if(second){if(!project?.scenes?.length)return;project.scenes.forEach((_,i)=>sync(i))}
  const scenes=second?project.scenes:getScenesReady();if(!scenes.length||scenes.some(s=>!(s.image||s.video)||!s.audio))return message('全シーンの画像・映像と音声を先に完成させてください。');
  if(document.querySelector('.scene[data-audio-outdated="1"],.scene[data-audio-generating="1"],.scene[data-image-generating="1"]'))return message('変更した文章の音声を作り直し、生成が終わってから書き出してください。');
- pending=true;button().disabled=true;document.querySelectorAll('audio,video').forEach(a=>a.pause());window.stopPreview?.();let context=null;
+ clearDownload();pending=true;button().disabled=true;document.querySelectorAll('audio,video').forEach(a=>a.pause());window.stopPreview?.();let context=null;
  try{
   message('書き出し素材を準備しています。サーバー受付完了と表示されるまで、この画面を開いておいてください。');
   const format=$('videoFormat')?.value||'16:9';let width,height;if(format==='9:16'){width=1080;height=1920}else{[width,height]=($('exportSize')?.value||'1280x720').split('x').map(Number)}
@@ -52,8 +74,8 @@ async function start(){
 }
 function schedule(){clearTimeout(timer);timer=setTimeout(poll,5000)}
 async function poll(){if(!current||pending)return;const card=$(second?'videoCard':'previewWrap');if(card)card.style.display='block';try{const d=await api('status',{id:current.id});current.status=d.status;save();if(d.status==='done'){
- const dl=$(second?'saveLink':'downloadVideo');dl.href=d.url;dl.download='youtube-video.mp4';dl.textContent='完成した動画を保存（MP4）';dl.style.display='block';dl.onclick=async e=>{e.preventDefault();const win=window.open('about:blank','_blank');try{const fresh=await api('status',{id:current.id});if(win)win.location.href=fresh.url;else location.href=fresh.url}catch(err){win?.close();message(err.message)}};
- let player=$(second?'resultVideo':'completedVideo');if(!player){player=document.createElement('video');player.id='completedVideo';player.controls=true;player.playsInline=true;player.style.cssText='display:block;width:100%;margin-top:12px;border-radius:12px';dl.after(player)}if(player.getAttribute('src')!==d.url)player.src=d.url;player.style.display='block';cancelState(false);message('サーバーで動画が完成しました。MP4を保存できます。');const bar=$('exportBar');if(bar)bar.style.width='100%';return;
+ const dl=$(second?'saveLink':'downloadVideo');
+ let player=$(second?'resultVideo':'completedVideo');if(!player){player=document.createElement('video');player.id='completedVideo';player.controls=true;player.playsInline=true;player.style.cssText='display:block;width:100%;margin-top:12px;border-radius:12px';dl.after(player)}player.style.display='block';cancelState(false);const bar=$('exportBar');if(bar)bar.style.width='100%';await prepareDownload(d,current.id);return;
  }if(d.status==='failed'||d.status==='cancelled'){cancelState(false);message(d.status==='failed'?'書き出しエラー：'+(d.error||'もう一度書き出してください。'):'書き出しを中止しました。');return}
  if(d.status==='uploading'){await api('cancel',{id:current.id});current=null;save();message('素材の送信途中で画面を離れたため、もう一度書き出してください。');return}
  cancelState(true);const bar=$('exportBar');if(bar)bar.style.width=d.progress+'%';message(d.status==='queued'?'受付完了・サーバーの起動を要求済み。ほかのサイトへ移動できます。開始待ちには数分かかる場合があります。':'サーバーで動画を書き出し中… '+d.progress+'%。ほかのサイトやYouTubeへ移動できます。');schedule();
@@ -64,3 +86,4 @@ function bind(){const b=button();if(!b||b.dataset.serverExportBound)return;b.dat
 }
 launcherPanel();new MutationObserver(bind).observe(document.body,{childList:true,subtree:true});bind();if(current)setTimeout(poll,1000);window.addEventListener('pageshow',()=>{if(current)poll()});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&current)poll()});
 })();
+
