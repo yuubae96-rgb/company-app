@@ -17,7 +17,7 @@ async function searchPlaces(q){const m=q.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,、]\s
  const [spots,addresses]=await Promise.all([spotPlaces(q),json('https://msearch.gsi.go.jp/address-search/AddressSearch?q='+encodeURIComponent(q),12000).catch(()=>[])]);
  if(spots.length)return spots;
  const items=(addresses||[]).filter(p=>p.geometry?.coordinates).map(p=>({name:p.properties.title,coord:p.geometry.coordinates,kind:'address',detail:'住所の周辺'}));if(items.length)return items.slice(0,16);
- return railPlaces;
+ return q.endsWith('駅')?railPlaces:[];
 }
 function candidates(list,slot){$('results').replaceChildren();for(const p of list){const b=document.createElement('button');b.textContent=p.name+(p.detail?'［'+p.detail+'］':'')+' → '+({start:'出発地',via:'経由地',end:'目的地'}[slot]);b.onclick=()=>{add(p,slot);$('results').replaceChildren()};$('results').append(b)}}
 for(const slot of ['start','via','end']){const input=$(slot+'Input'),button=$('find'+slot[0].toUpperCase()+slot.slice(1));input.onfocus=()=>activeSlot=slot;input.oninput=()=>{ready=false;$('preview').disabled=$('export').disabled=true};button.onclick=async()=>{activeSlot=slot;const q=input.value.trim();if(!q)return;button.disabled=true;try{const list=await searchPlaces(q);if(list.length===1){add(list[0],slot);$('results').replaceChildren()}else{candidates(list,slot);say(list.length?'候補から地点を選んでください。':'候補がありません。住所または緯度,経度を入力してください。')}}catch(e){say('地点検索に失敗しました：'+e.message)}finally{button.disabled=false}};input.onkeydown=e=>{if(e.key==='Enter')button.click()}}
