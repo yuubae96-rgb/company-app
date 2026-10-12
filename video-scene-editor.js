@@ -6,19 +6,19 @@ const copy=x=>structuredClone(x);
 function busy(){return rows().some(r=>r.dataset.imageGenerating==='1'||r.dataset.audioGenerating==='1'||r.querySelector('.scene-image-btn:disabled,.scene-audio-btn:disabled'))||!!$('exportVideo')?.dataset.exportBusy||$('makeVideo')?.disabled===true}
 function snapshot(){
  if(second){project.scenes.forEach((_,i)=>sync(i));return copy(project)}
- return {title:document.querySelector('.projectTitle')?.textContent||$('topic')?.value||'',summary:document.querySelector('.summary')?.textContent||'',scenes:rows().map((r,i)=>({title:r.querySelector('.sceneTitleInput').value,narration:r.querySelector('.nar').value,ttsNarration:r.querySelector('.ttsNar').value,imagePrompt:r.querySelector('.prompt').value,seconds:Number(r.querySelectorAll('.badge')[1]?.textContent.replace('秒',''))||0,factCheck:r.querySelector('.fact')?.textContent.replace(/^確認ポイント：/,'')||'',savedImage:$('pic'+i)?.dataset.image||'',savedAudio:$('audio'+i)?.getAttribute('src')||'',audioAlignment:$('audio'+i)?._alignment||[],audioSubtitle:$('audio'+i)?.dataset.subtitle||'',audioReading:$('audio'+i)?.dataset.ttsText||''}))};
+ return {title:document.querySelector('.projectTitle')?.textContent||$('topic')?.value||'',summary:document.querySelector('.summary')?.textContent||'',scenes:rows().map((r,i)=>({title:r.querySelector('.sceneTitleInput').value,narration:r.querySelector('.nar').value,ttsNarration:r.querySelector('.ttsNar').value,imagePrompt:r.querySelector('.prompt').value,seconds:Number(r.querySelectorAll('.badge')[1]?.textContent.replace('秒',''))||0,factCheck:r.querySelector('.fact')?.textContent.replace(/^確認ポイント：/,'')||'',savedImage:$('pic'+i)?.dataset.image||'',savedVideo:$('pic'+i)?.dataset.video||'',savedAudio:$('audio'+i)?.getAttribute('src')||'',audioAlignment:$('audio'+i)?._alignment||[],audioSubtitle:$('audio'+i)?.dataset.subtitle||'',audioReading:$('audio'+i)?.dataset.ttsText||''}))};
 }
 function restore(model){
  document.querySelectorAll('audio,video').forEach(a=>a.pause());window.stopPreview?.();
  if(second){project=copy(model);render();usage();updateAiUsageSummary?.()}
- else{render(copy(model),{preserveNarration:true,preserveReading:true});model.scenes.forEach((s,i)=>{if(s.savedImage)setSceneImage(i,s.savedImage);if(s.savedAudio){const a=$('audio'+i);a.src=s.savedAudio;a._alignment=s.audioAlignment||[];a.dataset.subtitle=s.audioSubtitle||s.narration;a.dataset.ttsText=s.audioReading||s.ttsNarration;a.style.display='block';$('audioState'+i).textContent='保存した音声';} });updateExportReadiness();}
+ else{render(copy(model),{preserveNarration:true,preserveReading:true});model.scenes.forEach((s,i)=>{if(s.savedImage)setSceneImage(i,s.savedImage);if(s.savedVideo)window.setSceneMapVideo?.(i,s.savedVideo,s.savedImage);if(s.savedAudio){const a=$('audio'+i);a.src=s.savedAudio;a._alignment=s.audioAlignment||[];a.dataset.subtitle=s.audioSubtitle||s.narration;a.dataset.ttsText=s.audioReading||s.ttsNarration;a.style.display='block';$('audioState'+i).textContent='保存した音声';} });updateExportReadiness();}
  install();document.dispatchEvent(new Event('input',{bubbles:true}));
 }
 function clearAudio(s){for(const k of ['audio','savedAudio','audioAlignment','audioSubtitle','audioReading','audioProvider','_audioFingerprint','leadingSilenceMs'])delete s[k];return s}
-function media(s){return second?(s.video||s.image||''):(s.savedImage||'')}
+function media(s){return second?(s.video||s.image||''):(s.savedVideo||s.savedImage||'')}
 function setMedia(s,from){
  if(second){s.image=from?.image||'';s.video=from?.video||'';s.videoName=from?.videoName||'';s.imageProvider=from?.imageProvider||''}
- else s.savedImage=from?.savedImage||'';
+ else {s.savedImage=from?.savedImage||'';s.savedVideo=from?.savedVideo||'';}
 }
 function preview(src){const box=document.createElement('div');box.style.cssText='height:110px;background:#eef1f5;border-radius:8px;overflow:hidden;margin:6px 0';if(src){const el=document.createElement(src.startsWith('data:video/')?'video':'img');el.src=src;el.style.cssText='width:100%;height:100%;object-fit:contain';box.append(el)}else box.textContent='画像なし';return box}
 function dialog(title,choices,initial,fields=[]){return new Promise(resolve=>{
