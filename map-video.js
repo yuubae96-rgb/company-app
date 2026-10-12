@@ -20,6 +20,19 @@ async function findIntermediateLabels(){
  const seen=new Set(points().map(p=>p.name.replace(/(駅|市|町|区)$/u,'')));
  const samples=[];for(const leg of travelLegs){const count=Math.min(7,Math.max(2,Math.round(leg.meters/70000)));for(let i=1;i<count;i++){const coord=part(i/count,leg.track).c;samples.push({coord,mode:leg.mode})}}
  await Promise.all(samples.slice(0,12).map(async sample=>{try{const [lon,lat]=sample.coord;const data=await json('https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress?lat='+lat+'&lon='+lon);const code=data.results?.muniCd;let name='';if(code){const table=window.GSI?.MUNI_ARRAY;const entry=table?.[code];if(entry)name=entry.split(',').at(-1)}if(!name&&data.results?.lv01Nm)name=data.results.lv01Nm;if(!name)return;name=name.replace(/^(.*?[都道府県])/u,'').replace(/(市|区|町|村).*/u,'$1');const key=name.replace(/(駅|市|町|区)$/u,'');if(seen.has(key))return;seen.add(key);intermediateLabels.push({...sample,name})}catch(e){}}));
+ // 鉄道区間ではOpenStreetMapの駅データを経路付近から取得する（失敗時は地名だけ表示）。
+ for(const leg of travelLegs.filter(l=>l.mode==='rail')){
+  try{
+   const pts=leg.coords.filter((_,i)=>i%Math.max(1,Math.ceil(leg.coords.length/150))===0);
+   const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);const bbox=[Math.min(...ys)-.025,Math.min(...xs)-.025,Math.max(...ys)+.025,Math.max(...xs)+.025];
+   const query='[out:json][timeout:12];(node["railway"="station"]('+bbox.join(',')+');node["railway"="halt"]('+bbox.join(',')+'););out body;';
+   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),14000);
+   let data;try{const response=await fetch('https://overpass.kumi.systems/api/interpreter',{method:'POST',body:new URLSearchParams({data:query}),signal:controller.signal});if(!response.ok)throw Error('駅データ取得失敗');data=await response.json()}finally{clearTimeout(timer)}
+   const candidates=(data.elements||[]).filter(e=>e.tags?.name&&Number.isFinite(e.lon)&&Number.isFinite(e.lat)).map(e=>{const coord=[e.lon,e.lat];let best=Infinity,index=0;for(let i=0;i<pts.length;i++){const d=directKm(coord,pts[i]);if(d<best){best=d;index=i}}return {coord,name:e.tags['name:ja']||e.tags.name,near:best,index}}).filter(e=>e.near<2.5).sort((a,b)=>a.index-b.index);
+   const chosen=[];for(const item of candidates){const key=item.name.replace(/駅$/u,'');if(seen.has(key)||chosen.some(x=>x.name===item.name||Math.abs(x.index-item.index)<Math.max(2,pts.length/9)))continue;chosen.push(item);seen.add(key)}
+   const maxStations=6,step=Math.max(1,Math.ceil(chosen.length/maxStations));for(const item of chosen.filter((_,i)=>i%step===0).slice(0,maxStations))intermediateLabels.push({coord:item.coord,name:item.name.endsWith('駅')?item.name:item.name+'駅',mode:'rail'});
+  }catch(e){console.warn('主要駅名の取得を省略しました',e)}
+ }
  intermediateLabels.sort((a,b)=>{const aa=travelLegs[0].track.coords[0],bb=travelLegs.at(-1).track.coords.at(-1);return directKm(aa,a.coord)-directKm(aa,b.coord)});
 }
 function paintIntermediateLabels(ctx,c,placed){if(!intermediateLabels.length)return;const sx=c.width/map.getContainer().clientWidth,sy=c.height/map.getContainer().clientHeight;ctx.save();ctx.font='500 '+Math.max(12,Math.round(c.width*.012))+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';for(const item of intermediateLabels){const xy=map.project(item.coord),x=xy.x*sx,y=xy.y*sy;if(x<20||y<20||x>c.width-20||y>c.height-65)continue;const w=ctx.measureText(item.name).width+12,h=23;const candidates=[[x+14,y-32],[x-w-14,y-32],[x+14,y+14],[x-w-14,y+14]];const rect=candidates.map(([rx,ry])=>({x:rx,y:ry,w,h})).find(r=>r.x>5&&r.y>5&&r.x+w<c.width-5&&r.y+h<c.height-55&&!placed.some(q=>r.x<q.x+q.w+8&&r.x+r.w+8>q.x&&r.y<q.y+q.h+8&&r.y+r.h+8>q.y));if(!rect)continue;placed.push(rect);ctx.fillStyle='rgba(255,255,255,.86)';ctx.fillRect(rect.x,rect.y,w,h);ctx.fillStyle='#24364b';ctx.fillText(item.name,rect.x+w/2,rect.y+h/2)}ctx.restore()}
