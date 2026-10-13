@@ -64,6 +64,13 @@ async function start(items){
 function schedule(ms=5000){clearTimeout(timer);timer=setTimeout(()=>poll(),ms)}
 async function saveResult(item,result,record=active){let src;if(item.kind==='image')src='data:'+(result.mimeType||'image/png')+';base64,'+result.data;else if(result.mimeType&&!/audio\/(?:L16|pcm)/i.test(result.mimeType)){src=base64AudioUrl(result.data,result.mimeType)}else{src=pcmBase64ToWavUrl(result.data,result.sampleRate||24000,result.channels||1)}const saved=await portable(src);record.results[item.id]={resultId:record.id+':'+item.id,sceneIndex:item.scene_index,kind:item.kind,src:saved,alignment:result.alignment||result.audioAlignment||[],provider:result.provider||'',fallbackFrom:result.fallbackFrom||'',audioSubtitle:record.snapshot.model.scenes[item.scene_index]?.narration||'',audioReading:item.kind==='audio'?record.items[item.ordinal].request.text:''};const sc=record.snapshot.model.scenes[item.scene_index];if(item.kind==='image')sc.savedImage=saved;else{sc.savedAudio=saved;sc.audioAlignment=result.alignment||result.audioAlignment||[];sc.audioSubtitle=sc.narration;sc.audioReading=record.items[item.ordinal].request.text;}if(!resetting)applyResult(record.results[item.id],record);await persist(()=>saveMedia(record,item.id,saved),record)}
 function applyResult(x,record=active){const i=x.sceneIndex,row=rows()[i];if(!row||!record||!isCurrent(record,x.kind,i)||x.kind==='image'&&localImages.has(i)&&!x.local)return;row.dataset[x.kind+'Generating']='';if(x.kind==='image'){originalSetSceneImage(i,source(x.src));if(x.video)window.setSceneMapVideo?.(i,source(x.video),$('pic'+i)?.dataset.image);row.querySelector('.imgBtn').textContent='画像を作り直す';let tag=row.querySelector('.imageAiResult');if(!tag){tag=document.createElement('div');tag.className='status imageAiResult';$('pic'+i).insertAdjacentElement('afterend',tag)}tag.textContent='使用したAI：'+(x.provider==='openai'?'ChatGPT（OpenAI）':'Gemini')+(x.fallbackFrom?'（Geminiから自動切替）':'')}else{const a=$('audio'+i),s=record.snapshot.model.scenes[i];const audioKey=x.resultId||record.id+':audio:'+i;if(a.dataset.appliedAudioKey!==audioKey){a.pause();a.src=source(x.src);a.load();a.dataset.appliedAudioKey=audioKey;}a.style.display='block';a._alignment=x.alignment;a.dataset.subtitle=x.audioSubtitle||s.narration;a.dataset.ttsText=x.audioReading||s.ttsNarration;$('audioState'+i).textContent='完成：'+($('voice').selectedOptions[0]?.textContent||'AIナレーション');row.querySelector('.ttsBtn').textContent='音声を作り直す'}updateExportReadiness()}
+async function acknowledgeSavedResults(record){
+ if(storageUnavailable||record.localSaveWarning)return;
+ const itemIds=Object.entries(record.results||{}).filter(([id,x])=>!x.local&&!x.serverArchived&&/^[-a-f0-9]{36}$/.test(id)&&!!x.src).map(([id])=>id);
+ if(!itemIds.length)return;
+ const reply=await request('ackResults',{itemIds},record);
+ if(reply.archived===itemIds.length){for(const id of itemIds)record.results[id].serverArchived=true;await persist(()=>put(record),record)}
+}
 async function poll(manual=false){
  if(resetting||busy||starting||!active)return;busy=true;
  const primary=active,currentEpoch=epoch;
@@ -95,7 +102,8 @@ async function poll(manual=false){
      else applyResult(record.results[item.id],record);
     }
    }
-   await persist(()=>put(record),record)
+   await persist(()=>put(record),record);
+   await acknowledgeSavedResults(record).catch(()=>console.warn('端末への保存は完了しています。サーバーの作業ファイルは定期整理で削除されます。'));
    if(resetting||starting||currentEpoch!==epoch||active!==primary)return;
   }
   primary.companionStatus=records.slice(1).flatMap(r=>r.status||[]);primary.companionPending=pending;primary.visibleStatus=[...targets.values()].map(x=>x.item.kind==='image'&&localImages.has(x.item.scene_index)?{...x.item,status:'done'}:x.item);
