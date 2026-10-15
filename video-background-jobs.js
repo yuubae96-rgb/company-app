@@ -5,7 +5,7 @@ const $=id=>document.getElementById(id),rows=()=>[...document.querySelectorAll('
 let active=null,busy=false,starting=false,timer=null,locked=[],resetting=false,restoring=false,epoch=0,startingKinds=new Set();
 const launchQueue=[];
 const BUILD='20261014-reading-preflight';
-function showRevision(){const bar=$('videoDraftBar');if(!bar||$('audioRedoRevision'))return;const label=document.createElement('div');label.id='audioRedoRevision';label.textContent='音声・読み方修正版 10/14';label.style.cssText='flex-basis:100%;font-size:11px;color:#5f4a12';bar.style.flexWrap='wrap';bar.appendChild(label)}
+function showRevision(){const bar=$('videoDraftBar');if(!bar||$('audioRedoRevision'))return;const label=document.createElement('div');label.id='audioRedoRevision';label.textContent='進行状況・読み方案内版 10/15';label.style.cssText='flex-basis:100%;font-size:11px;color:#5f4a12';bar.style.flexWrap='wrap';bar.appendChild(label)}
 let progressSummary=null;
 let storageUnavailable=false;
 const targets=new Map(),localImages=new Set(),recordsCache=new Map();
@@ -27,7 +27,13 @@ async function saveMedia(record,id,src){const db=await database();try{const tx=d
 async function get(id){const db=await database();try{const record=await readStore(db,'jobs',id);if(!record)return null;if(record.snapshot)return record;record.snapshot=await readStore(db,'snapshots',id);if(!record.snapshot)throw Error('保存した動画構成を読み込めませんでした');for(const [key,x]of Object.entries(record.results||{})){x.src=await readStore(db,'media',id+':'+key);if(!x.src){delete record.results[key];continue}if(x.hasVideo)x.video=await readStore(db,'media',id+':'+key+':video');const scene=record.snapshot.model.scenes[x.sceneIndex];if(x.kind==='image'){scene.savedImage=x.src;if(x.video)scene.savedVideo=x.video;else delete scene.savedVideo;}else{scene.savedAudio=x.src;scene.audioAlignment=x.alignment||[];scene.audioSubtitle=x.audioSubtitle||scene.narration;scene.audioReading=x.audioReading||scene.ttsNarration}}return record}finally{db.close()}}
 async function request(action,extra={},record=active){const r=await fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,token:token(),jobId:record.id,...extra}),signal:AbortSignal.timeout(30000)});const d=await r.json();if(!r.ok){const e=Error(d.error||'進捗を確認できませんでした');e.httpStatus=r.status;throw e}return d}
 function panel(){if($('backgroundJobPanel'))return;const p=document.createElement('div');p.id='backgroundJobPanel';p.className='card';p.style.cssText='margin:12px 0;background:#eef6ff;border:1px solid #bfd4ec';p.innerHTML='<b>画面を離れても画像・音声の作成を続けます</b><div id="backgroundJobStatus" class="status" role="status" aria-live="polite">サーバーの受付完了後は、YouTubeやChatGPTへ移動できます。戻ると結果を読み込みます。</div><div class="toolbar"><button type="button" class="subbtn" id="backgroundRefresh">進捗を確認</button><button type="button" class="subbtn" id="backgroundCancel" hidden>作成を中止</button><button type="button" class="subbtn" id="backgroundRetry" hidden>失敗した場面だけ再試行</button></div><div class="readingHelp">完成結果はこの端末にも保存します。サーバーでの保管は30日間です。動画の書き出し中は画面を開いておいてください。</div>';const result=$('result');result.insertAdjacentElement('beforebegin',p);$('backgroundRefresh').onclick=()=>poll(true);$('backgroundCancel').onclick=cancel;$('backgroundRetry').onclick=retry;}
-function message(s){progressSummary=null;panel();$('backgroundJobStatus').textContent=s;let top=$('backgroundTopState');const bar=$('videoDraftBar');if(bar&&!top){top=document.createElement('div');top.id='backgroundTopState';top.setAttribute('role','status');top.style.cssText='flex-basis:100%;font-size:12px;line-height:1.5;color:#315f87';bar.style.flexWrap='wrap';bar.appendChild(top)}if(top&&top.textContent!==s)top.textContent=s;}
+
+function topicStatus(s){
+ let el=$('topicBatchStatus'),b=$('makeAllFromTopic');
+ if(!el&&b){el=document.createElement('div');el.id='topicBatchStatus';el.setAttribute('role','status');el.setAttribute('aria-live','polite');el.style.cssText='margin-top:10px;padding:12px;border-radius:10px;background:#eef6ff;color:#173f69;font-size:14px;line-height:1.6;white-space:pre-wrap';b.insertAdjacentElement('afterend',el)}
+ if(el)el.textContent=s;
+}
+function message(s){topicStatus(s);progressSummary=null;panel();$('backgroundJobStatus').textContent=s;let top=$('backgroundTopState');const bar=$('videoDraftBar');if(bar&&!top){top=document.createElement('div');top.id='backgroundTopState';top.setAttribute('role','status');top.style.cssText='flex-basis:100%;font-size:12px;line-height:1.5;color:#315f87';bar.style.flexWrap='wrap';bar.appendChild(top)}if(top&&top.textContent!==s)top.textContent=s;}
 function showBuildProgress(summary,p=window.getVideoBuildProgress?.()){if(!p)return;const {pending,failed,cancelled,firstError}=summary;const busy=pending||p.pending>0;const prefix=busy?'画像・音声をサーバーで作成中：':cancelled?'作成を中止しました。':failed?'一部の生成に失敗しました。':p.done===p.expected&&p.expected?'画像・音声の作成が完了しました。':'画像・音声の作成状況：';message(prefix+' '+p.done+'/'+p.expected+'件完成'+(busy?'。この画面を離れても進みます。':'')+(p.outdated?'・音声の作り直しが必要 '+p.outdated+'件':'')+(failed?'・失敗 '+failed+'件 '+generationError(firstError):''));progressSummary=summary;}
 window.addEventListener('video-build-progress',event=>{if(progressSummary)showBuildProgress(progressSummary,event.detail)});
 function generationError(error){const text=String(error||'生成に失敗しました');return /prepayment credits are depleted/i.test(text)?'Geminiの画像生成クレジットが不足しています。「自動」または「ChatGPT」を選び、失敗した場面を再試行してください。':text}
@@ -122,8 +128,15 @@ let readingPreflight=null;
 async function launchGeneration(kinds,all=false,indices){
  try{
   if(indices===undefined){
-   if(!readingPreflight)readingPreflight=ensureVideoReadingsChecked().finally(()=>{readingPreflight=null});
-   if(!await readingPreflight){message('全シーンの読み方を確認してから画像・音声を作成します。候補を確認・反映し、生成ボタンをもう一度押してください。');return false;}
+   message('処理中：全シーンの読み方を自動チェックしています。手動で押す必要はありません。');if(!readingPreflight)readingPreflight=ensureVideoReadingsChecked().finally(()=>{readingPreflight=null});
+   if(!await readingPreflight){
+const text='確認待ち：読み方の確認が必要なため、画像・音声の生成はまだ始まっていません。候補を確認・修正して「音声に反映」した後、下の「確認した読み方で画像・音声を作成」を押してください。チェックが失敗した場合は「読み方を自動チェック」で再試行してください。';
+message(text);failureNotice('読み方の確認が必要です。画像・音声はまだ生成していません。');
+let resume=$('resumeTopicGeneration');
+if(!resume){resume=document.createElement('button');resume.id='resumeTopicGeneration';resume.type='button';resume.className='primary';resume.textContent='確認した読み方で画像・音声を作成';$('readingResults').insertAdjacentElement('afterend',resume)}
+resume.hidden=false;resume.onclick=async()=>{resume.disabled=true;try{if(await launchGeneration(kinds,all,indices)){resume.hidden=true;failureNotice()}}finally{resume.disabled=false}};
+const details=$('readingDictionary');if(details)details.open=true;
+alert(text);$('readingResults')?.scrollIntoView({behavior:'smooth',block:'center'});return false;}
   }
   updateExportReadiness();
   return await start(itemsFor(kinds,all,indices));
@@ -140,7 +153,24 @@ function bindButtons(){
 const originalUpdateReadiness=updateExportReadiness;updateExportReadiness=function(...args){originalUpdateReadiness(...args);let outdated=false;rows().forEach((r,i)=>{const a=$('audio'+i),nar=r.querySelector('.nar')?.value.trim()||'',reading=r.querySelector('.ttsNar')?.value.trim()||nar;const stale=!!a?.getAttribute('src')&&!!a.dataset.subtitle&&(narrationBreaths(nar)!==narrationBreaths(a.dataset.subtitle.trim())||speechIdentity(reading)!==speechIdentity(a.dataset.ttsText||a.dataset.subtitle));r.dataset.audioOutdated=stale?'1':'';if(stale)outdated=true;if(stale&&r.dataset.audioGenerating!=='1'){const state=$('audioState'+i),text='文章が変更されています。音声を作り直してください。';if(state&&state.textContent!==text)state.textContent=text}});const pending=rows().some(r=>r.dataset.imageGenerating==='1'||r.dataset.audioGenerating==='1');if(pending||outdated){const b=$('exportVideo');if(b){b.disabled=true;b.setAttribute('aria-disabled','true')}const hint=$('exportReadiness');if(hint){const suffix=outdated?' ／ 変更した文章の音声を作り直してください。':' ／ 作り直しを含む画像・音声を作成中です。';if(!hint.textContent.endsWith(suffix))hint.textContent+=suffix}}};
 const oldRender=render;render=function(...args){if(!restoring){epoch++;active=null;targets.clear();localImages.clear();recordsCache.clear();clearTimeout(timer);localStorage.removeItem(POINTER)}const result=oldRender(...args);bindButtons();return result};
 const originalSetSceneImage=setSceneImage;setSceneImage=function(i,src){if(!restoring){localImages.add(i);const row=rows()[i];if(row)row.dataset.imageGenerating='';const record=active;if(record){record.localImageIndices=[...localImages];(async()=>{const saved=await portable(src),id='local-image:'+i;record.results[id]={sceneIndex:i,kind:'image',src:saved,local:true};await saveMedia(record,id,saved);await put(record)})().catch(e=>message('手持ち画像を端末に保存できませんでした。一時保存してください。'))}}const result=originalSetSceneImage(i,src);updateExportReadiness();return result};
-$('makeAllFromTopic').onclick=async()=>{if(starting||active&&(!active.finished||active.companionPending))return;if(!confirm('次の設定で動画構成・画像・音声を一括作成します。\n\n'+['narrationStyle','minutes','videoFormat','voice','style','imageProvider','titleDisplay','titleBackground'].map(id=>$(id).selectedOptions[0].textContent).join('\n')+'\n\n構成ができてサーバーが受付を完了したら、別のページへ移動できます。'))return;const b=$('makeAllFromTopic');b.disabled=true;try{if(await $('make').onclick())await launchGeneration(['image','audio']);}catch(e){message('一括作成を開始できませんでした：'+e.message)}finally{b.disabled=!!active&&(!active.finished||active.companionPending);}};
+
+let topicRunning=false;
+$('makeAllFromTopic').onclick=async()=>{
+ if(topicRunning||starting||active&&(!active.finished||active.companionPending)){message('処理中：すでに作成を進めています。上部の進行状況をご確認ください。');return}
+ if(!$('topic').value.trim()&&!referenceUrls().length){message('入力待ち：テーマまたは参考URLを入力してください。');alert('テーマまたは参考URLを入力してください。');return}
+ if(!confirm('現在の設定で動画構成・画像・音声を一括作成します。読み方は構成作成後に自動チェックします。候補がある場合は確認待ちで停止し、案内を表示します。')){message('開始前にキャンセルしました。まだ作成は始まっていません。');return}
+ const b=$('makeAllFromTopic'),label=b.textContent;topicRunning=true;b.disabled=true;b.setAttribute('aria-busy','true');
+ const began=Date.now();
+ const tick=()=>topicStatus('処理中：動画構成をAIに依頼しています。ページ数の確認が表示されたら回答してください。 経過 '+Math.floor((Date.now()-began)/1000)+'秒。'+(Date.now()-began>60000?'応答待ちです。完了やエラーが出るまで画面を開いてお待ちください。':'画像・音声の件数は構成完成後に増えます。'));
+ tick();const clock=setInterval(tick,1000);b.textContent='動画構成を作成中…';
+ try{
+  const made=await $('make').onclick();clearInterval(clock);
+  if(!made){message('一括作成を停止しました：'+($('status')?.textContent||'構成作成が完了していません。'));return}
+  b.textContent='読み方を確認中…';await launchGeneration(['image','audio']);
+ }catch(e){const text='一括作成エラー：'+e.message;failureNotice(text);message(text);alert(text)}
+ finally{clearInterval(clock);topicRunning=false;b.textContent=label;b.setAttribute('aria-busy','false');b.disabled=!!active&&(!active.finished||active.companionPending)}
+};
+
 window.addEventListener('pageshow',()=>poll());document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});window.addEventListener('online',()=>poll());
 window.clearVideoBackgroundProject=()=>{epoch++;resetting=true;launchQueue.splice(0).forEach(x=>x.resolve(false));clearTimeout(timer);active=null;targets.clear();localImages.clear();recordsCache.clear();localStorage.removeItem(POINTER)};
 window.listVideoBackgroundRecovery=async()=>{const db=await database();let saved;try{saved=await new Promise((res,rej)=>{const r=db.transaction('jobs').objectStore('jobs').getAll();r.onsuccess=()=>res(r.result||[]);r.onerror=()=>rej(r.error)})}finally{db.close()}const referenced=new Set(saved.flatMap(r=>[...(r.linkedJobIds||[]),r.companionJobId].filter(Boolean)));const heads=saved.filter(r=>!referenced.has(r.id));const out=[];for(const meta of heads){try{const r=await get(meta.id);if(r?.snapshot?.model?.scenes?.length)out.push({id:r.id,title:r.snapshot.model.title||'生成途中の動画',sceneCount:r.snapshot.model.scenes.length,savedAt:r.createdAt||'',load:async()=>{const primary=await get(r.id),records=await projectRecords(primary),snapshot=structuredClone(primary.snapshot),seen=new Set();for(const record of records)for(const value of Object.values(record.results||{})){const key=targetKey(value.kind,value.sceneIndex);if(seen.has(key)||!value.src)continue;seen.add(key);const scene=snapshot.model.scenes[value.sceneIndex];if(!scene)continue;if(value.kind==='image')scene.savedImage=value.src;else{scene.savedAudio=value.src;scene.audioAlignment=value.alignment||[];scene.audioSubtitle=value.audioSubtitle||scene.narration;scene.audioReading=value.audioReading||scene.ttsNarration}}return{savedAt:primary.createdAt||'',company:snapshot.model,forms:snapshot.forms||[],media:[],vars:{},recovered:true}}})}catch(e){console.warn('自動保存候補を読み込めませんでした',e?.name)}}return out.sort((a,b)=>b.savedAt.localeCompare(a.savedAt))};
