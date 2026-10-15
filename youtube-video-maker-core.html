@@ -401,4 +401,27 @@ function scan(){for(const host of document.querySelectorAll('#status,#background
 new MutationObserver(scan).observe(document.body,{childList:true,subtree:true,characterData:true});scan();
 window.describeVideoCreditError=describe;
 })();
+</script>
+<script>
+/* Keep the existing reading check, its results and resume button beside generation. */
+(()=>{
+const reading=document.getElementById('readingCard'),result=document.getElementById('result');
+if(!reading||!result)return;
+function position(){
+ const toolbar=result.querySelector('.toolbar');
+ if(!toolbar)return;
+ if(toolbar.nextElementSibling!==reading)toolbar.insertAdjacentElement('afterend',reading);
+ reading.style.cssText='display:block;width:100%;margin:12px 0;padding:12px;border:2px solid #a2abc1;border-radius:12px;background:#f7f9fc';
+ const button=document.getElementById('checkReadings');
+ if(button)button.style.cssText='width:100%;min-height:48px;font-size:15px';
+ if(!document.getElementById('readingNearbyHeading')){
+ const title=document.createElement('div');title.id='readingNearbyHeading';title.textContent='画像・音声を作る前に、読み方を確認';title.style.cssText='font-weight:900;margin-bottom:8px;font-size:14px';
+ reading.prepend(title);
+ }
+ const details=document.getElementById('readingDictionary');
+ if(details&&details.contains(reading))details.open=true;
+}
+new MutationObserver(position).observe(result,{childList:true,subtree:true});
+position();
+})();
 </script></body></html>
