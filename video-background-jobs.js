@@ -5,7 +5,7 @@ const $=id=>document.getElementById(id),rows=()=>[...document.querySelectorAll('
 let active=null,busy=false,starting=false,timer=null,locked=[],resetting=false,restoring=false,epoch=0,startingKinds=new Set();
 const launchQueue=[];
 const BUILD='20261014-reading-preflight';
-function showRevision(){const bar=$('videoDraftBar');if(!bar||$('audioRedoRevision'))return;const label=document.createElement('div');label.id='audioRedoRevision';label.textContent='進行状況・読み方案内版 10/15';label.style.cssText='flex-basis:100%;font-size:11px;color:#5f4a12';bar.style.flexWrap='wrap';bar.appendChild(label)}
+function showRevision(){const bar=$('videoDraftBar');if(!bar||$('audioRedoRevision'))return;const label=document.createElement('div');label.id='audioRedoRevision';label.textContent='エラー表示改善版 10/16';label.style.cssText='flex-basis:100%;font-size:11px;color:#5f4a12';bar.style.flexWrap='wrap';bar.appendChild(label)}
 let progressSummary=null;
 let storageUnavailable=false;
 const targets=new Map(),localImages=new Set(),recordsCache=new Map();
@@ -165,7 +165,7 @@ $('makeAllFromTopic').onclick=async()=>{
  tick();const clock=setInterval(tick,1000);b.textContent='動画構成を作成中…';
  try{
   const made=await $('make').onclick();clearInterval(clock);
-  if(!made){message('一括作成を停止しました：'+($('status')?.textContent||'構成作成が完了していません。'));return}
+  if(!made){topicStatus('動画構成の作成を停止しました。画像・音声の作成は開始していません。エラーの詳細と対処方法は下の構成作成欄をご確認ください。');if($('backgroundTopState'))$('backgroundTopState').textContent='構成作成で停止しました。';return}
   b.textContent='読み方を確認中…';await launchGeneration(['image','audio']);
  }catch(e){const text='一括作成エラー：'+e.message;failureNotice(text);message(text);alert(text)}
  finally{clearInterval(clock);topicRunning=false;b.textContent=label;b.setAttribute('aria-busy','false');b.disabled=!!active&&(!active.finished||active.companionPending)}
