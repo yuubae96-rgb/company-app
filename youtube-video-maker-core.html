@@ -365,16 +365,26 @@ wrapped.__actionFeedback=true;b.onclick=wrapped;
 <script>
 (()=>{
 const links={gemini:['Gemini','https://aistudio.google.com/billing'],openai:['ChatGPT（OpenAI）','https://platform.openai.com/account/billing']};
-function needsBilling(text){return /insufficient_quota|credit_balance_exhausted|(?:credits?|balance).*(?:deplet|insufficient|exhaust|remaining)|add credits|billing_hard_limit|残高.{0,8}(?:不足|上限)|クレジット.{0,16}(?:不足|使い切|枯渇)|利用枠.{0,12}(?:不足|上限)/i.test(String(text||''))}
+function needsBilling(text){return /\bHTTP\s*402\b|\bpayment[\s_-]*required\b|insufficient_quota|credit_balance_exhausted|(?:credits?|balance).*(?:deplet|insufficient|exhaust|remaining)|add credits|billing_hard_limit|残高.{0,8}(?:不足|上限)|クレジット.{0,16}(?:不足|使い切|枯渇)|利用枠.{0,12}(?:不足|上限)/i.test(String(text||''))}
 function describe(error,host,context={}){
  const text=String(error||'');
- const explicit=/openai|chatgpt|platform\.openai|insufficient_quota|credit_balance_exhausted/i.test(text)?'openai':/gemini|google|prepayment credits/i.test(text)?'gemini':null;
+ // Identify the service from the failing segment, before any fallback error.
+ const segments=text.split(/\s+\/\s+(?=(?:ChatGPT|OpenAI|Gemini|Google)\s*[:：])/i);
+ const failing=segments.filter(needsBilling);
+ const services=new Set();
+ for(const segment of failing){
+  const named=segment.match(/(?:Gemini|Google|ChatGPT|OpenAI)\s*[:：]/i)?.[0]||'';
+  if(/gemini|google/i.test(named))services.add('gemini');
+  else if(/chatgpt|openai/i.test(named))services.add('openai');
+ }
+ const explicit=services.size===1?[...services][0]:null;
  const selected=context.provider;
- const provider=explicit||(['gemini','openai'].includes(selected)?selected:null);
+ const provider=explicit||(services.size===0&&['gemini','openai'].includes(selected)?selected:null);
  const marker=(context.action||'')+' '+(host?.id||'')+' '+(host?.className||'')+' '+text;
  const task=context.task||(/generateSceneTitles|sceneTitle/i.test(marker)?'見出し作成':/checkReading|readingResults|読み方/i.test(marker)?'読み方チェック':/generateImage|imageGeneration|画像/i.test(marker)?'AI画像作成':/generate.*Tts|audioState|音声|ナレーション生成/i.test(marker)?'AI音声作成':/generateScript|動画構成|文章整理/i.test(marker)?'AIでの文章整理・動画構成作成':'AI処理');
  const definite=/credit_balance_exhausted|credits?.*(?:deplet|insufficient|exhaust)|残高不足|クレジット.{0,10}(?:不足|枯渇)/i.test(text);
- const reason=definite?'クレジット残高不足':'クレジット残高または利用枠の不足';
+ const payment=/\bHTTP\s*402\b|payment[\s_-]*required/i.test(text);
+ const reason=definite?'クレジット残高不足':payment?'支払いに関するエラー（HTTP 402。残高不足など、詳細は支払い設定で確認してください）':'クレジット残高または利用枠の不足';
  const service=provider?links[provider][0]:'AIサービス（エラー情報からサービス名は特定できません）';
  return {provider,task,reason,service,fallback:!!context.fallback};
 }
@@ -392,9 +402,9 @@ window.showVideoCreditHelp=function(error,host=document.getElementById('status')
  const title=document.createElement('strong');title.textContent='エラーが発生しました：'+info.task;box.appendChild(title);
  const note=document.createElement('div');note.textContent=info.service+'の'+info.task+'で、'+info.reason+'のエラーが出ています。そのため、このAIを使った'+info.task+'は完了できませんでした。';box.appendChild(note);
  if(info.fallback){const done=document.createElement('div');done.textContent='代わりに、入力原稿を変更せずにシーンへ分け、動画構成は完成しました。画像・音声はまだこの処理では作成していません。';done.style.cssText='margin-top:8px;font-weight:bold;color:#176343';box.appendChild(done)}
- const prompt=document.createElement('div');prompt.textContent='クレジットを補充しますか？ 下のリンクから補充画面を開けます。';prompt.style.cssText='margin-top:10px;font-weight:bold';box.appendChild(prompt);
+ const prompt=document.createElement('div');prompt.textContent='下のリンクから支払い設定・クレジット残高を確認し、必要に応じて補充してください。';prompt.style.cssText='margin-top:10px;font-weight:bold';box.appendChild(prompt);
  for(const key of info.provider?[info.provider]:['gemini','openai']){
- const [name,url]=links[key],a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener noreferrer';a.textContent=name+'のクレジットを補充する ↗';
+ const [name,url]=links[key],a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener noreferrer';a.textContent=name+'の支払い設定・クレジット補充 ↗';
  a.style.cssText='display:block;margin-top:8px;padding:12px;background:#263b6a;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold';box.appendChild(a);
  }
  const hint=document.createElement('div');hint.textContent='このアプリのAPIに使用しているアカウントで開いてください。ChatGPTの月額契約とは別の残高です。補充後、できなかった作業を再試行してください。利用枠・速度制限の場合は補充で解消しないことがあります。';hint.style.cssText='margin-top:8px;font-size:12px';box.appendChild(hint);
