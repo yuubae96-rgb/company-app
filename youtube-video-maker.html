@@ -8,7 +8,7 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}</style>
 </head>
 <body>
-<iframe id="app" src="youtube-video-maker-core.html?v=20261016-billing402-fix1" allow="microphone;camera"></iframe>
+<iframe id="app" src="youtube-video-maker-core.html?v=20261016-url-fallback1" allow="microphone;camera"></iframe>
 <script>
 const frame=document.getElementById('app');
 let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=null,currentStream=null,currentAudioCtx=null;
@@ -23,7 +23,7 @@ frame.addEventListener('load',()=>{
   const topic=d.getElementById('topic');
   if(topic&&!d.getElementById('referenceUrls')){
     const box=d.createElement('div');
-    box.innerHTML='<label style="display:block;font-size:12px;font-weight:800;color:#6d7788;margin:10px 0 6px">参考URL（テーマ未入力でも可・最大5件）</label><textarea id="referenceUrls" placeholder="WebサイトやYouTubeのURLを1行に1件貼り付け" style="width:100%;min-height:82px;border:1px solid #dce1e8;border-radius:11px;padding:11px;font-size:16px;background:#fff;color:#172033;line-height:1.55"></textarea><div style="font-size:12px;color:#6d7788;margin-top:5px;line-height:1.55">参考URLだけでも作成できます。YouTube動画の読み取りにはGeminiを使用します。読み取れない場合はエラー・注意を表示します。</div>';
+    box.innerHTML='<label style="display:block;font-size:12px;font-weight:800;color:#6d7788;margin:10px 0 6px">参考URL（テーマ未入力でも可・最大5件）</label><textarea id="referenceUrls" placeholder="WebサイトやYouTubeのURLを1行に1件貼り付け" style="width:100%;min-height:82px;border:1px solid #dce1e8;border-radius:11px;padding:11px;font-size:16px;background:#fff;color:#172033;line-height:1.55"></textarea><div style="font-size:12px;color:#6d7788;margin-top:5px;line-height:1.55">参考URLだけでも作成できます。WebページはOpenAIでも読み取り可能。YouTubeはGeminiが使えない場合、字幕の取得を試します。字幕のみの場合は映像未確認と表示します。取得できない時は本文・文字起こしを貼り付けてください。</div>';
     const chips=topic.parentElement.querySelector('.chips');
     (chips||topic).insertAdjacentElement('afterend',box);
   }
