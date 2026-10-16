@@ -320,6 +320,8 @@ const match=b=>/作成|作る|作り直|チェック|試聴|書き出|再試行|
 function friendly(s){s=String(s||'');if(/insufficient_quota|credits.*(?:depleted|remaining)|add credits|exceeded.*quota/i.test(s))return 'エラー：AIサービスの利用残高または利用枠が不足しています。利用したサービスの残高・上限を確認してから再試行してください。';if(/failed to fetch|networkerror/i.test(s))return 'エラー：通信に失敗しました。接続を確認して再試行してください。';return s}
 document.addEventListener('click',e=>{
 const b=e.target.closest('button');if(!b||!match(b)||typeof b.onclick!=='function')return;
+// Reading substitutions are synchronous; preserve bulk click ordering and use their own result status.
+if(b.matches('.applyReading,#applyAllReadings'))return;
 if(running.has(b)){e.preventDefault();e.stopImmediatePropagation();return}
 const original=b.onclick;
 if(original.__actionFeedback)return;
@@ -329,11 +331,15 @@ const wrapped=async function(...args){
  box.className='actionFeedback';box.setAttribute('role','status');box.setAttribute('aria-live','polite');
  box.style.cssText='width:100%;margin:8px 0;padding:12px;border:1px solid #bfd4ec;border-radius:10px;background:#eef6ff;color:#173f69;font-size:14px;line-height:1.6;white-space:pre-wrap';
  const old=b.nextElementSibling;if(old?.classList.contains('actionFeedback'))old.remove();
- b.insertAdjacentElement('afterend',box);
+ const feedbackHost=b.parentElement;
+ if(feedbackHost&&getComputedStyle(feedbackHost).display==='grid')feedbackHost.insertAdjacentElement('afterend',box);
+ else b.insertAdjacentElement('afterend',box);
+ box.style.boxSizing='border-box';box.style.minWidth='0';box.style.maxHeight='160px';box.style.overflow='auto';box.style.gridColumn='1 / -1';box.style.flexBasis='100%';
  let detail='',last='',finished=false;
  const sources=()=>[...document.querySelectorAll('#status,#readingResults,#backgroundJobStatus,#topicBatchStatus,#exportStatus,#voicePreviewState,#imageStyleState,.audioState,.imageGenerationState')];
- const before=new Map(sources().map(x=>[x,x.textContent]));
- const update=()=>{if(finished)return;for(const x of sources()){const t=x.textContent.trim();if(t&&before.get(x)!==t){before.set(x,t);detail=friendly(t)}}
+ const before=new Map();
+ const readStatus=x=>{const copy=x.cloneNode(true);copy.querySelectorAll('.actionFeedback,.videoCreditHelp,button,input').forEach(n=>n.remove());return copy.textContent.trim().slice(0,600)};
+ const update=()=>{if(finished)return;for(const x of sources()){if(x===box||box.contains(x))continue;const t=readStatus(x);if(t&&before.get(x)!==t){before.set(x,t);detail=friendly(t)}}
  const seconds=Math.floor((Date.now()-start)/1000);
  const message=label+'\n'+(detail||'受付済み：処理を開始しています…')+'\n経過 '+seconds+'秒'+(seconds>=60?'／応答待ちです。完了・エラー表示までお待ちください。':'');
  if(last!==message){box.textContent=message;last=message}};
