@@ -17,6 +17,16 @@ async function auth(req:Request,worker:boolean){const token=(req.headers.get('au
  const profiles=await rest('app_users?user_id=eq.'+encodeURIComponent(u.id)+'&select=role,active');if(!profiles[0]?.active||!['owner','office','manager'].includes(profiles[0].role))throw Error('利用権限がありません');return {id:u.id,role:profiles[0].role};
 }
 
+
+async function removeJobFiles(job:any,includeOutput=false){
+ const paths=(job.assets||[]).map((a:any)=>a.path);
+ if(includeOutput&&job.output_path)paths.push(job.output_path);
+ if(paths.some((p:any)=>typeof p!=='string'||!p.startsWith(job.id+'/')||p.includes('..')))throw Error('Invalid cleanup path');
+ if(!paths.length)return;
+ const r=await fetch(BASE+'/storage/v1/object/'+BUCKET,{method:'DELETE',headers:{apikey:KEY,Authorization:'Bearer '+KEY,'Content-Type':'application/json'},body:JSON.stringify({prefixes:paths})});
+ if(!r.ok)throw Error('一時ファイルを整理できませんでした。再試行してください。');
+}
+
 async function launcherKey(){const env=Deno.env.get('VIDEO_EXPORT_GITHUB_TOKEN');if(env)return env;const config=await rest('rpc/video_export_launcher_config',{});return config?.cipher?await decryptToken(config.cipher,KEY):''}
 
 Deno.serve(async req=>{if(req.method==='OPTIONS')return new Response('ok',{headers});if(req.method!=='POST')return reply({error:'Method not allowed'},405);try{
@@ -48,9 +58,16 @@ Deno.serve(async req=>{if(req.method==='OPTIONS')return new Response('ok',{heade
  }
  if(worker){
   if(b.action==='claim'){if(b.id&&!/^[-a-f0-9]{36}$/.test(b.id))throw Error('Invalid job');const job=await rpc({p_action:'claim',p_id:b.id||null});if(!job)return reply({job:null});const assets=await Promise.all(job.assets.map(async(a:any)=>({...a,url:await download(a.path)})));return reply({job:{id:job.id,lease:job.lease,manifest:job.manifest,assets,outputUpload:await upload(job.id+'/video.mp4')}})}
-  if(!/^[-a-f0-9]{36}$/.test(b.id||'')||!/^[-a-f0-9]{36}$/.test(b.lease||''))throw Error('Invalid worker job');const job=await rpc({p_action:b.action,p_id:b.id,p_lease:b.lease,p_progress:Number(b.progress)||0,p_error:String(b.error||'').slice(0,500)||null});return reply({status:job.status});
+  if(!/^[-a-f0-9]{36}$/.test(b.id||'')||!/^[-a-f0-9]{36}$/.test(b.lease||''))throw Error('Invalid worker job');const job=await rpc({p_action:b.action,p_id:b.id,p_lease:b.lease,p_progress:Number(b.progress)||0,p_error:String(b.error||'').slice(0,500)||null});if(b.action==='done'){try{await removeJobFiles(job)}catch{console.warn('Export input cleanup pending')}}return reply({status:job.status});
  }
  if(!/^[-a-f0-9]{36}$/.test(b.id||''))throw Error('Invalid job');let job=await rpc({p_action:'status',p_id:b.id,p_user:user});if(!job)return reply({error:'書き出しが見つかりません'},404);
+ if(b.action==='saved'){
+ if(job.status!=='done')throw Error('完成した動画だけ整理できます');
+ await removeJobFiles(job,true);
+ await rpc({p_action:'cancel',p_id:b.id,p_user:user});
+ return reply({removed:true});
+ }
+ if(b.action==='status'&&job.status==='done'){try{await removeJobFiles(job)}catch{console.warn('Export input cleanup pending')}}
  if(b.action==='queue'){for(const a of job.assets){const r=await fetch(await download(a.path),{method:'GET',headers:{Range:'bytes=0-0'}});if(!r.ok)throw Error('素材の送信が完了していません。');await r.body?.cancel();}job=await rpc({p_action:'queue',p_id:b.id,p_user:user});const token=await launcherKey();if(!token)throw Error('即時起動キーを設定してください。');await dispatchExport(token,b.id);}
  else if(b.action==='cancel')job=await rpc({p_action:'cancel',p_id:b.id,p_user:user});else if(b.action!=='status')throw Error('Unknown action');
  return reply({id:job.id,status:job.status,progress:job.progress,error:job.error,launchMode:'immediate',...(job.status==='done'?{url:await download(job.output_path)}:{})});
