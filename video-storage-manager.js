@@ -11,7 +11,7 @@ let items=[],busy=false,loaded=false;
 const key=x=>x.bucket+'\0'+x.name;
 const labels={video:'完成動画',image:'画像',audio:'音声',other:'その他'};
 const size=n=>n<1000000?(n/1000).toFixed(1)+'KB':(n/1000000).toFixed(1)+'MB';
-function setBusy(v){busy=v;root.querySelectorAll('button:not([data-close]):not([data-preview-close]),input,select').forEach(e=>e.disabled=v);if(!v)updateSelection()}
+function setBusy(v){busy=v;root.querySelectorAll('button:not([data-close]):not([data-preview-close]),input,select').forEach(e=>e.disabled=v||e.dataset.active==='1');if(!v)updateSelection()}
 async function session(){
  const queue=[window],seen=new Set();
  while(queue.length){const w=queue.shift();if(seen.has(w))continue;seen.add(w);try{if(typeof w.securityRequireSession==='function')return await w.securityRequireSession('vnnvuxccazkdzwqjmntz');for(const f of w.document.querySelectorAll('iframe'))if(f.contentWindow)queue.push(f.contentWindow)}catch{}}
@@ -28,7 +28,7 @@ function render(){
  list.replaceChildren();const rows=visible();
  if(!rows.length){const e=document.createElement('div');e.className='empty';e.textContent=!loaded?'「更新」で保存状況を確認してください。':items.length?'条件に合うデータはありません。':'サーバーに動画・画像・音声は残っていません。';list.append(e)}
  for(const x of rows){
-  const row=document.createElement('div');row.className='row';const cb=document.createElement('input');cb.type='checkbox';cb.checked=selected.has(key(x));cb.disabled=busy||x.active;cb.setAttribute('aria-label',x.title+' '+labels[x.kind]+'を選択');cb.onchange=()=>{if(cb.checked&&selected.size>=200){cb.checked=false;status.textContent='1回に選べるのは200件までです。';return}cb.checked?selected.add(key(x)):selected.delete(key(x));updateSelection()};
+  const row=document.createElement('div');row.className='row';const cb=document.createElement('input');cb.type='checkbox';cb.checked=selected.has(key(x));cb.dataset.active=x.active?'1':'0';cb.disabled=busy||x.active;cb.setAttribute('aria-label',x.title+' '+labels[x.kind]+'を選択');cb.onchange=()=>{if(cb.checked&&selected.size>=200){cb.checked=false;status.textContent='1回に選べるのは200件までです。';return}cb.checked?selected.add(key(x)):selected.delete(key(x));updateSelection()};
   const body=document.createElement('div'),title=document.createElement('div'),detail=document.createElement('div'),meta=document.createElement('div'),pill=document.createElement('span');title.className='title';title.textContent=x.title;detail.className='detail';detail.textContent=x.detail;meta.className='meta';pill.className='pill';pill.textContent=labels[x.kind];meta.append(pill,document.createTextNode(size(x.bytes)+' ・ '+new Date(x.createdAt).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})));if(x.active)meta.append(document.createTextNode(' ・ 生成中／状態未確認のため削除不可'));body.append(title,detail,meta);row.append(cb,body);
   if(x.kind!=='other'){const b=document.createElement('button');b.type='button';b.textContent=x.kind==='audio'?'試聴':'内容を見る';b.onclick=()=>preview(x,b);row.append(b)}list.append(row);
  }
