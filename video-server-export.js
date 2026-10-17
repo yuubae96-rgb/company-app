@@ -25,7 +25,7 @@ function launcherPanel(){
  api('launcherStatus').then(d=>{panel.hidden=!d.canConfigure;if(d.canConfigure){$('videoLauncherStatus').textContent=d.ready?'専用キーは設定済みです。受付時に直接起動を要求します。':'専用キーの設定が必要です。';panel.open=!d.ready}}).catch(()=>{});
 }
 
-function clearDownload(){if(downloadCache)URL.revokeObjectURL(downloadCache.url);downloadCache=null;const dl=$(second?'saveLink':'downloadVideo');if(dl){dl.removeAttribute('href');dl.style.display='none';dl.onclick=null;dl.removeAttribute('aria-disabled')}}
+function clearDownload(){if($('confirmVideoSaved'))$('confirmVideoSaved').hidden=true;if(downloadCache)URL.revokeObjectURL(downloadCache.url);downloadCache=null;const dl=$(second?'saveLink':'downloadVideo');if(dl){dl.removeAttribute('href');dl.style.display='none';dl.onclick=null;dl.removeAttribute('aria-disabled')}}
 // Keep Safari from navigating the application iframe when saving a blob.
 function bindDownload(dl){
  dl.removeAttribute('target');
@@ -58,6 +58,15 @@ async function prepareDownload(d,id){
  finally{if(downloadTask===task)downloadTask=null}})();
  return task.promise;
 }
+function showSavedButton(id){
+ let b=$('confirmVideoSaved');
+ if(!b){b=document.createElement('button');b.id='confirmVideoSaved';b.type='button';b.style.cssText='display:block;margin:10px 0;padding:12px;border-radius:10px';$(second?'saveLink':'downloadVideo').after(b)}
+ b.hidden=false;b.textContent='iPhoneへの保存を確認したので、サーバーの動画を削除';
+ b.onclick=async()=>{
+ if(!confirm('iPhoneの「写真」または「ファイル」で動画を再生できることを確認しましたか？確認できた場合だけOKを押してください。サーバーの動画を削除します。'))return;
+ b.disabled=true;try{await api('saved',{id});current=null;save();b.hidden=true;message('サーバーの動画と書き出し素材を削除しました。端末の動画は引き続き使えます。')}catch(e){message('整理できませんでした：'+e.message)}finally{b.disabled=false}
+ };
+}
 function save(){if(current)localStorage.setItem(KEY,JSON.stringify(current));else localStorage.removeItem(KEY)}
 function captionList(s,duration){const out=[];let start=0,last='';const caption=t=>second?speechCaption(s,t,duration):subtitleAt(s.text,t,duration,s.alignment||[]);for(let t=0;t<duration;t+=.1){const text=String(caption(t)||'');if(text!==last){if(last)out.push({start,end:Math.min(duration,t),text:last});start=t;last=text;}}if(last)out.push({start,end:duration,text:last});return out;}
 async function start(){
@@ -86,7 +95,7 @@ async function start(){
 function schedule(){clearTimeout(timer);timer=setTimeout(poll,5000)}
 async function poll(){if(!current||pending)return;const card=$(second?'videoCard':'previewWrap');if(card)card.style.display='block';try{const d=await api('status',{id:current.id});current.status=d.status;save();if(d.status==='done'){
  const dl=$(second?'saveLink':'downloadVideo');
- let player=$(second?'resultVideo':'completedVideo');if(!player){player=document.createElement('video');player.id='completedVideo';player.controls=true;player.playsInline=true;player.style.cssText='display:block;width:100%;margin-top:12px;border-radius:12px';dl.after(player)}player.style.display='block';cancelState(false);const bar=$('exportBar');if(bar)bar.style.width='100%';await prepareDownload(d,current.id);return;
+ let player=$(second?'resultVideo':'completedVideo');if(!player){player=document.createElement('video');player.id='completedVideo';player.controls=true;player.playsInline=true;player.style.cssText='display:block;width:100%;margin-top:12px;border-radius:12px';dl.after(player)}player.style.display='block';cancelState(false);const bar=$('exportBar');if(bar)bar.style.width='100%';await prepareDownload(d,current.id);if(downloadCache?.id===current.id)showSavedButton(current.id);return;
  }if(d.status==='failed'||d.status==='cancelled'){cancelState(false);message(d.status==='failed'?'書き出しエラー：'+(d.error||'もう一度書き出してください。'):'書き出しを中止しました。');return}
  if(d.status==='uploading'){await api('cancel',{id:current.id});current=null;save();message('素材の送信途中で画面を離れたため、もう一度書き出してください。');return}
  cancelState(true);const bar=$('exportBar');if(bar)bar.style.width=d.progress+'%';message(d.status==='queued'?'受付完了・サーバーの起動を要求済み。ほかのサイトへ移動できます。開始待ちには数分かかる場合があります。':'サーバーで動画を書き出し中… '+d.progress+'%。ほかのサイトやYouTubeへ移動できます。');schedule();
