@@ -251,6 +251,11 @@ async function checkReadings(options={}){const b=$('checkReadings'),box=$('readi
 const normalizeReadingCandidate=x=>{const term=String(x?.term||'').trim(),reading=readingAsKatakana(x?.reading||'');if(!term||!reading||!text.includes(term))return null;
 // Already-readable katakana and unchanged readings do not need correction.
 if(!/[一-龯々〆ヶ]/u.test(term)||readingAsKatakana(term)===reading)return null;
+// Suppress routine mixed-katakana geographical names (e.g. ナイル川 → ナイルガワ).
+// Keep explicit dictionary entries so genuinely exceptional readings can still be corrected.
+if(/^[ァ-ヿー・･]+(?:川|河|山|湖|島|海|湾|市|県|州|国)$/u.test(term)&&!Object.hasOwn(HARD_KANJI_READINGS,term))return null;
+// Also suppress purely mechanical conversions of a commonplace geographic suffix.
+if(/^[ァ-ヿー・･]+(?:川|河|山|湖|島|海|湾)$/u.test(term)&&!Object.hasOwn(HARD_KANJI_READINGS,term))return null;
 return {term,reading}};
 const candidates=[...(Array.isArray(d.items)?d.items:[]),...Object.entries(HARD_KANJI_READINGS).filter(([term])=>text.includes(term)).map(([term,reading])=>({term,reading}))];
 const seen=new Set();
