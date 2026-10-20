@@ -40,7 +40,7 @@ async function inventory(){
      const kind=mime.startsWith('video/')?'video':mime.startsWith('image/')?'image':mime.startsWith('audio/')?'audio':'other';
      const match=name.match(/\/(?:media|audio)-(\d+)$/),scene=match?Number(match[1]):null;
      const sceneTitle=scene!==null?job?.scenes?.[scene]?.title:'';
-     items.push({bucket,name,id:o.id,updatedAt:o.updated_at||o.created_at,createdAt:o.created_at,bytes:Number(o.metadata?.size)||0,mime,kind,title:job?.title||(source==='export'?'動画書き出し':'画像・音声生成'),detail:sceneTitle|| (scene!==null?'シーン '+(scene+1):kind==='video'?'完成動画':'生成素材'),active:job?.active??true});
+     items.push({bucket,name,id:o.id,updatedAt:o.updated_at||o.created_at,createdAt:o.created_at,bytes:Number(o.metadata?.size)||0,mime,kind,title:job?.title||(source==='export'?'動画書き出し':'画像・音声生成'),detail:sceneTitle|| (scene!==null?'シーン '+(scene+1):kind==='video'?'完成動画':'生成素材'),active:job?Boolean(job.active):(Date.now()-Date.parse(o.updated_at||o.created_at)<24*60*60*1000),orphan:!job});
      if(items.length>10000)throw Error('保存件数が多いため一覧を取得できません。');
     }
     if(page.length<1000)break;
@@ -49,14 +49,14 @@ async function inventory(){
  }
  return items.sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
 }
-function validateSelection(selected:any[],items:any[]){
+function validateSelection(selected:any[],items:any[],allowActive=false){
  if(!Array.isArray(selected)||!selected.length||selected.length>200)throw Error('1回に1〜200件を選んでください。');
  const current=new Map(items.map(x=>[itemKey(x),x])),seen=new Set();
  return selected.map(s=>{
   if(!BUCKETS.includes(s?.bucket)||typeof s.name!=='string'||s.name.includes('..'))throw Error('削除対象が不正です。');
   const k=itemKey(s),x=current.get(k);if(seen.has(k))throw Error('削除対象が重複しています。');seen.add(k);
   if(!x||x.id!==s.id||x.updatedAt!==s.updatedAt)throw Error('データが変わりました。一覧を更新して選び直してください。');
-  if(x.active)throw Error('生成中、または状態を確認できないデータは削除できません。');
+  if(x.active&&!allowActive)throw Error('生成中、または作成から24時間以内で状態未確認のデータは削除できません。');
   return x;
  });
 }
@@ -69,7 +69,7 @@ Deno.serve(async req=>{
   const items=await inventory();
   if(b.action==='list')return reply({items,totalBytes:items.reduce((s,x)=>s+x.bytes,0)});
   if(b.action==='preview'){
-   const [x]=validateSelection([b.item],items);
+   const [x]=validateSelection([b.item],items,true);
    const path=x.name.split('/').map(encodeURIComponent).join('/');
    const d=await service('/storage/v1/object/sign/'+x.bucket+'/'+path,{expiresIn:300});
    return reply({url:BASE+'/storage/v1'+d.signedURL});
@@ -79,6 +79,6 @@ Deno.serve(async req=>{
    try{await service('/storage/v1/object/'+bucket,{prefixes:files.map(x=>x.name)},'DELETE');deleted+=files.length;freedBytes+=files.reduce((s,x)=>s+x.bytes,0);}
    catch{return reply({error:'一部を削除できませんでした。一覧を更新して確認してください。',deleted,freedBytes},500);}
   }
-  return reply({deleted,freedBytes});
+  const remaining=await inventory();const remainingKeys=new Set(remaining.map(itemKey));const actuallyDeleted=selected.filter(x=>!remainingKeys.has(itemKey(x)));return reply({deleted:actuallyDeleted.length,freedBytes:actuallyDeleted.reduce((sum,x)=>sum+x.bytes,0),remainingCount:remaining.length,remainingBytes:remaining.reduce((sum,x)=>sum+x.bytes,0),verified:actuallyDeleted.length===selected.length});
  }catch(e){return reply({error:(e as Error).message},400);}
 });
