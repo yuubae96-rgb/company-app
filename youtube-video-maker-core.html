@@ -228,10 +228,10 @@ $('makeAllFromTopic').onclick=async()=>{
   if(!await $('make').onclick()){$('status').textContent+=' 一括作成を停止しました。';return}
   const rows=[...document.querySelectorAll('.scene')];
   if(!rows.length){$('status').textContent+=' 一括作成を停止しました。構成を確認してください。';return}
-  b.textContent='AI画像・AI音声を同時作成中…';
+  b.textContent=window.characterAnimationEnabled?.()?'キャラクター・音声を準備中…':'AI画像・AI音声を同時作成中…';
   // 画像と音声は互いを待たず、独立した2本の生成キューとして同時に開始する。
   // 片方で一場面が失敗しても、もう片方のキューは最後まで継続する。
-  const imageJob=(async()=>{const errors=[];for(let i=0;i<rows.length;i++){if($('pic'+i).dataset.image)continue;const ok=await makeImage(i,rows[i].querySelector('.imgBtn'));if(!ok)errors.push(i+1)}return errors})();
+  const imageJob=(async()=>{const errors=[];for(let i=0;i<rows.length;i++){if(window.characterAnimationEnabled?.()){window.prepareCharacterScene?.(i);continue;}if($('pic'+i).dataset.image)continue;const ok=await makeImage(i,rows[i].querySelector('.imgBtn'));if(!ok)errors.push(i+1)}return errors})();
   const audioJob=(async()=>{const errors=[];for(let i=0;i<rows.length;i++){if($('audio'+i).getAttribute('src'))continue;await makeAudio(i,rows[i].querySelector('.ttsBtn'));if(!$('audio'+i).getAttribute('src'))errors.push(i+1)}return errors})();
   const [imageErrors,audioErrors]=await Promise.all([imageJob,audioJob]);
   if(imageErrors.length||audioErrors.length){const parts=[];if(imageErrors.length)parts.push('画像：場面'+imageErrors.join('・'));if(audioErrors.length)parts.push('音声：場面'+audioErrors.join('・'));throw Error('一部の生成に失敗しました（'+parts.join(' / ')+'）。成功した側はそのまま完成まで続行しました。')}
@@ -518,4 +518,6 @@ function position(){
 new MutationObserver(position).observe(result,{childList:true,subtree:true});
 position();
 })();
-</script></body></html>
+</script>
+<script src="youtube-character-animation.js?v=20261021-v1"></script>
+</body></html>
