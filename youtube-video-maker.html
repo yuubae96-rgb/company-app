@@ -8,7 +8,7 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}</style>
 </head>
 <body>
-<iframe id="app" src="youtube-video-maker-core.html?v=20261021-character-v1" allow="microphone;camera"></iframe>
+<iframe id="app" src="youtube-video-maker-core.html?v=20261021-ai-cast-v2" allow="microphone;camera"></iframe>
 <script>
 const frame=document.getElementById('app');
 let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=null,currentStream=null,currentAudioCtx=null;
@@ -43,7 +43,7 @@ frame.addEventListener('load',()=>{
   animateButton.style.cssText='display:block;width:100%;margin:10px 0;padding:15px 12px;border:0;border-radius:12px;background:#ed91b7;color:#351224;font-weight:800;font-size:15px;cursor:pointer';
   const animateHelp=d.createElement('p');
   animateHelp.style.cssText='margin:2px 0 12px;font-size:12px;line-height:1.6;color:#596173';
-  animateHelp.textContent='テーマ・参考URLから、構成→音声→人物や文字が動くアニメーション→完成動画まで作成します。作成済みの場面がある場合は、その内容を使います。AI画像の作成は不要です。画面を開いたままお待ちください。';
+  animateHelp.textContent='テーマ・参考URLから、構成→音声→共通キャラクターが登場するイラスト→完成動画まで作成します。作成済みの場面がある場合は、その内容を使います。登場人物と各場面のイラストをAIで作成します。画面を開いたままお待ちください。';
   if(batch){batch.insertAdjacentElement('afterend',animateButton);animateButton.insertAdjacentElement('afterend',animateHelp)}
   const connectAnimationPanel=()=>{
     const panel=d.getElementById('aeWholeStoryPanel');
@@ -80,18 +80,17 @@ frame.addEventListener('load',()=>{
         await w.makeAudio(i,rows[i].querySelector('.ttsBtn'));
         if(!audio?.getAttribute('src'))failures.push(i+1);
       }
-      if(failures.length)throw Error('音声生成に失敗した場面：'+failures.join('・')+'。画像を作る必要はありません。');
-      animateButton.textContent='3/4 動く図解を作成中…';
-      if(!w.AnimatedExplainerBulk)throw Error('アニメーション部品が読み込まれていません。ページを再読込してください。');
-      connectAnimationPanel();
-      const result=await w.AnimatedExplainerBulk.build({exportVideo:async()=>{
-        animateButton.textContent='4/4 完成動画を書き出し中…';
-        const exportButton=d.getElementById('exportVideo');
-        if(!exportButton||exportButton.disabled)throw Error('動画を書き出す準備が整いませんでした。');
-        const completed=await exportButton.onclick();
-        if(!completed)throw Error(d.getElementById('exportStatus')?.textContent||'動画の書き出しが完了しませんでした。');
-      }});
-      if(!result?.ok)throw Error(result?.error||'アニメーション作成が完了しませんでした。');
+      if(failures.length)throw Error('音声生成に失敗した場面：'+failures.join('・')+'。失敗した場面を再試行してください。');
+      animateButton.textContent='3/4 キャラクターと各場面をAIで作成中…';
+      if(!w.buildCharacterStory)throw Error('キャラクター作成機能を読み込めませんでした。ページを再読込してください。');
+      d.getElementById('characterAnimationMode').checked=true;
+      await w.buildCharacterStory();
+      w.updateExportReadiness?.();
+      animateButton.textContent='4/4 完成動画を書き出し中…';
+      const exportButton=d.getElementById('exportVideo');
+      if(!exportButton||exportButton.disabled)throw Error('動画を書き出す準備が整いませんでした。');
+      const completed=await exportButton.onclick();
+      if(!completed)throw Error(d.getElementById('exportStatus')?.textContent||'動画の書き出しが完了しませんでした。');
       status.textContent='動画が完成しました。下の完成動画を確認し、保存ボタンから端末に保存できます。';
       d.getElementById('completedVideo')?.scrollIntoView({behavior:'smooth',block:'center'});
     }catch(e){status.textContent='アニメ動画の自動作成を停止しました：'+e.message}
@@ -151,7 +150,7 @@ frame.addEventListener('load',()=>{
         const identityInstruction=protagonistReference?
           '\\n主人公の同一人物固定：添付の主人公基準画像'+(name?'は「'+name+'」です。':'に写る主人公が、この物語の中心人物です。')+
           '全体原稿と前後場面を読んで、「彼」「この青年」「創業者」などの省略された呼び方も、文脈上この主人公を指すなら同一人物として描いてください。顔の骨格、目、鼻、口、髪の生え際、体格を維持してください。衣装・表情・姿勢・場所は場面に合わせ、年代が変わる時だけ同じ人を自然に加齢させてください。別人の場面には主人公を入れないでください。':'';
-        body={...body,prompt:body.prompt+identityInstruction,aspectRatio:getAspect(),protagonistReference,styleReference};
+        body={...body,prompt:body.prompt+identityInstruction,aspectRatio:getAspect(),protagonistReference:body.protagonistReference||protagonistReference,styleReference:body.styleReference||styleReference};
       }
       return originalApi.call(w,body,...args);
     };
@@ -239,4 +238,5 @@ frame.addEventListener('load',()=>{
 <script src="https://yuubae96-rgb.github.io/company-app/video-storage-manager.js?v=20261020-manager2"></script>
 </body>
 </html>
+
 
