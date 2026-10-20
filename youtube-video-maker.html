@@ -36,6 +36,45 @@ frame.addEventListener('load',()=>{
   }
   const batch=d.getElementById('makeAllFromTopic'),reference=d.getElementById('referenceUrls');
   if(batch&&reference)reference.parentElement.appendChild(batch);
+  // One-click explainer path: a topic or reference URL is sufficient; no AI still images required.
+  const animateButton=d.createElement('button');
+  animateButton.type='button';animateButton.id='makeAnimatedStoryFromTopic';
+  animateButton.textContent='人物・図が動く解説動画を自動作成（AI画像不要）';
+  animateButton.style.cssText='display:block;width:100%;margin:10px 0;padding:15px 12px;border:0;border-radius:12px;background:#682635;color:white;font-weight:800;font-size:15px;cursor:pointer';
+  const animateHelp=d.createElement('p');
+  animateHelp.style.cssText='margin:2px 0 12px;font-size:12px;line-height:1.6;color:#596173';
+  animateHelp.textContent='テーマまたは参考URLだけで開始できます。構成→ナレーション→人物・文字・矢印が動く図解→動画出力の順です。画像AIは使用しません。実写の人物が動く生成AI動画ではなく、図解アニメーションです。';
+  if(batch){batch.insertAdjacentElement('afterend',animateButton);animateButton.insertAdjacentElement('afterend',animateHelp)}
+  let animateBusy=false;
+  animateButton.addEventListener('click',async()=>{
+    if(animateBusy)return;
+    const topicText=d.getElementById('topic')?.value.trim(),refs=d.getElementById('referenceUrls')?.value.trim();
+    const status=d.getElementById('status');
+    if(!topicText&&!refs){status.textContent='テーマまたは参考URLを入力してください。';return}
+    animateBusy=true;animateButton.disabled=true;
+    try{
+      animateButton.textContent='1/3 動画の構成を作成中…';
+      const made=await d.getElementById('make').onclick();
+      if(!made)throw Error('構成を作成できませんでした。入力内容とエラー表示を確認してください。');
+      const rows=[...d.querySelectorAll('.scene')];
+      if(!rows.length)throw Error('場面が作成されませんでした。');
+      animateButton.textContent='2/3 ナレーションを作成中…';
+      const failures=[];
+      for(let i=0;i<rows.length;i++){
+        const audio=d.getElementById('audio'+i);
+        if(audio?.getAttribute('src'))continue;
+        await w.makeAudio(i,rows[i].querySelector('.ttsBtn'));
+        if(!audio?.getAttribute('src'))failures.push(i+1);
+      }
+      if(failures.length)throw Error('音声生成に失敗した場面：'+failures.join('・')+'。画像を作る必要はありません。');
+      animateButton.textContent='3/3 動く図解を作成中…';
+      const bulk=d.querySelector('#aeWholeStoryPanel .ae-bulk-start');
+      if(!bulk)throw Error('アニメーション部品が読み込まれていません。ページを再読込してください。');
+      bulk.click();
+      status.textContent='音声の準備ができました。アニメ図解を生成し、完成動画の書き出しまで進めます。進行状況は「全体をAIアニメーション化」欄で確認してください。';
+    }catch(e){status.textContent='アニメ動画の自動作成を停止しました：'+e.message}
+    finally{animateBusy=false;animateButton.disabled=false;animateButton.textContent='人物・図が動く解説動画を自動作成（AI画像不要）'}
+  });
   const format=d.getElementById('videoFormat');
   const getAspect=()=>format?.value==='9:16'?'9:16':'16:9';
   const applyFormat=()=>{
