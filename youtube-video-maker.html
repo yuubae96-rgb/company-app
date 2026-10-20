@@ -8,7 +8,7 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}</style>
 </head>
 <body>
-<iframe id="app" src="youtube-video-maker-core.html?v=20261021-oneclick-video1" allow="microphone;camera"></iframe>
+<iframe id="app" src="youtube-video-maker-core.html?v=20261021-pink-complete1" allow="microphone;camera"></iframe>
 <script>
 const frame=document.getElementById('app');
 let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=null,currentStream=null,currentAudioCtx=null;
@@ -39,41 +39,63 @@ frame.addEventListener('load',()=>{
   // One-click explainer path: a topic or reference URL is sufficient; no AI still images required.
   const animateButton=d.createElement('button');
   animateButton.type='button';animateButton.id='makeAnimatedStoryFromTopic';
-  animateButton.textContent='人物・図が動く解説動画を自動作成（AI画像不要）';
-  animateButton.style.cssText='display:block;width:100%;margin:10px 0;padding:15px 12px;border:0;border-radius:12px;background:#682635;color:white;font-weight:800;font-size:15px;cursor:pointer';
+  animateButton.textContent='🌸 全体をAIアニメーション化';
+  animateButton.style.cssText='display:block;width:100%;margin:10px 0;padding:15px 12px;border:0;border-radius:12px;background:#ed91b7;color:#351224;font-weight:800;font-size:15px;cursor:pointer';
   const animateHelp=d.createElement('p');
   animateHelp.style.cssText='margin:2px 0 12px;font-size:12px;line-height:1.6;color:#596173';
-  animateHelp.textContent='テーマまたは参考URLだけで開始できます。構成→ナレーション→人物・文字・矢印が動く図解→動画出力の順です。画像AIは使用しません。実写の人物が動く生成AI動画ではなく、図解アニメーションです。';
+  animateHelp.textContent='テーマ・参考URLから、構成→音声→人物や文字が動くアニメーション→完成動画まで作成します。作成済みの場面がある場合は、その内容を使います。AI画像の作成は不要です。画面を開いたままお待ちください。';
   if(batch){batch.insertAdjacentElement('afterend',animateButton);animateButton.insertAdjacentElement('afterend',animateHelp)}
+  const connectAnimationPanel=()=>{
+    const panel=d.getElementById('aeWholeStoryPanel');
+    if(!panel)return;
+    if(panel.previousElementSibling!==animateHelp)animateHelp.after(panel);
+    panel.hidden=false;panel.style.display='';
+    panel.querySelector('.ae-bulk-start').style.display='none';
+    const dismiss=panel.querySelector('.ae-bulk-dismiss');if(dismiss)dismiss.style.display='none';
+    const reopen=d.getElementById('aeWholeStoryReopen');if(reopen)reopen.style.display='none';
+    const help=panel.querySelector('p');if(help)help.hidden=true;
+  };
+  new MutationObserver(connectAnimationPanel).observe(d.body,{childList:true,subtree:true});
+  connectAnimationPanel();
   let animateBusy=false;
   animateButton.addEventListener('click',async()=>{
     if(animateBusy)return;
     const topicText=d.getElementById('topic')?.value.trim(),refs=d.getElementById('referenceUrls')?.value.trim();
     const status=d.getElementById('status');
-    if(!topicText&&!refs){status.textContent='テーマまたは参考URLを入力してください。';return}
+    if(!topicText&&!refs&&!d.querySelector('.scene')){status.textContent='テーマまたは参考URLを入力してください。';return}
     animateBusy=true;animateButton.disabled=true;
     try{
-      animateButton.textContent='1/3 動画の構成を作成中…';
-      const made=await d.getElementById('make').onclick();
-      if(!made)throw Error('構成を作成できませんでした。入力内容とエラー表示を確認してください。');
+      animateButton.textContent='1/4 動画の構成を作成中…';
+      if(!d.querySelector('.scene')){
+        const made=await d.getElementById('make').onclick();
+        if(!made)throw Error('構成を作成できませんでした。入力内容とエラー表示を確認してください。');
+      }
       const rows=[...d.querySelectorAll('.scene')];
       if(!rows.length)throw Error('場面が作成されませんでした。');
-      animateButton.textContent='2/3 ナレーションを作成中…';
+      animateButton.textContent='2/4 ナレーションを作成中…';
       const failures=[];
       for(let i=0;i<rows.length;i++){
         const audio=d.getElementById('audio'+i);
-        if(audio?.getAttribute('src'))continue;
+        if(audio?.getAttribute('src')&&rows[i].dataset.audioOutdated!=='1')continue;
         await w.makeAudio(i,rows[i].querySelector('.ttsBtn'));
         if(!audio?.getAttribute('src'))failures.push(i+1);
       }
       if(failures.length)throw Error('音声生成に失敗した場面：'+failures.join('・')+'。画像を作る必要はありません。');
-      animateButton.textContent='3/3 動く図解を作成中…';
-      const bulk=d.querySelector('#aeWholeStoryPanel .ae-bulk-start');
-      if(!bulk)throw Error('アニメーション部品が読み込まれていません。ページを再読込してください。');
-      bulk.click();
-      status.textContent='音声の準備ができました。アニメ図解を生成し、完成動画の書き出しまで進めます。進行状況は「全体をAIアニメーション化」欄で確認してください。';
+      animateButton.textContent='3/4 動く図解を作成中…';
+      if(!w.AnimatedExplainerBulk)throw Error('アニメーション部品が読み込まれていません。ページを再読込してください。');
+      connectAnimationPanel();
+      const result=await w.AnimatedExplainerBulk.build({exportVideo:async()=>{
+        animateButton.textContent='4/4 完成動画を書き出し中…';
+        const exportButton=d.getElementById('exportVideo');
+        if(!exportButton||exportButton.disabled)throw Error('動画を書き出す準備が整いませんでした。');
+        const completed=await exportButton.onclick();
+        if(!completed)throw Error(d.getElementById('exportStatus')?.textContent||'動画の書き出しが完了しませんでした。');
+      }});
+      if(!result?.ok)throw Error(result?.error||'アニメーション作成が完了しませんでした。');
+      status.textContent='動画が完成しました。下の完成動画を確認し、保存ボタンから端末に保存できます。';
+      d.getElementById('completedVideo')?.scrollIntoView({behavior:'smooth',block:'center'});
     }catch(e){status.textContent='アニメ動画の自動作成を停止しました：'+e.message}
-    finally{animateBusy=false;animateButton.disabled=false;animateButton.textContent='人物・図が動く解説動画を自動作成（AI画像不要）'}
+    finally{animateBusy=false;animateButton.disabled=false;animateButton.textContent='🌸 全体をAIアニメーション化'}
   });
   const format=d.getElementById('videoFormat');
   const getAspect=()=>format?.value==='9:16'?'9:16':'16:9';
@@ -208,7 +230,7 @@ frame.addEventListener('load',()=>{
       if(exportCancelled){chunks.length=0;bar.style.width='0%';status.textContent='動画の書き出しを停止しました。修正後にもう一度書き出せます。';return}
       const actualType=rec.mimeType||mime||'video/webm',isMp4=/mp4/i.test(actualType),ext=isMp4?'mp4':'webm';const blob=new Blob(chunks,{type:actualType});if(!blob.size)throw new Error('動画データを取得できませんでした。');lastExportUrl=URL.createObjectURL(blob);
       dl.href=lastExportUrl;dl.download=`${(d.getElementById('topic').value||'youtube-video').replace(/[\\/:*?"<>|]/g,'_')}${getAspect()==='9:16'?'-short':''}.${ext}`;dl.style.display='block';dl.textContent=`完成した${getAspect()==='9:16'?'ショート':'動画'}を保存（${isMp4?'MP4':'WebM'}・${(blob.size/1024/1024).toFixed(1)}MB）`;
-      let player=d.getElementById('completedVideo');if(!player){player=d.createElement('video');player.id='completedVideo';player.controls=true;player.playsInline=true;player.style.cssText='display:block;width:100%;margin-top:12px;border-radius:12px;background:#000';dl.parentElement.appendChild(player)}player.src=lastExportUrl;player.style.display='block';bar.style.width='100%';status.textContent='動画が完成しました。';
+      let player=d.getElementById('completedVideo');if(!player){player=d.createElement('video');player.id='completedVideo';player.controls=true;player.playsInline=true;player.style.cssText='display:block;width:100%;margin-top:12px;border-radius:12px;background:#000';dl.parentElement.appendChild(player)}player.src=lastExportUrl;player.style.display='block';bar.style.width='100%';status.textContent='動画が完成しました。';return true;
     }catch(e){status.textContent=exportCancelled?'動画の書き出しを停止しました。修正後にもう一度書き出せます。':'書き出しエラー: '+e.message}
     finally{try{if(rec&&rec.state!=='inactive')rec.stop()}catch(_){}try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(_){}currentAudio=null;currentRecorder=null;currentStream=null;currentAudioCtx=null;if(stream)stream.getTracks().forEach(t=>t.stop());if(audioCtx&&audioCtx.state!=='closed')try{await audioCtx.close()}catch(_){}delete btn.dataset.exportBusy;w.updateExportReadiness?.();cancel.style.display='none'}
   };
