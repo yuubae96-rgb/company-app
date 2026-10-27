@@ -16,6 +16,21 @@ function once(el,event){return new Promise(res=>el.addEventListener(event,res,{o
 frame.addEventListener('load',()=>{
   const w=frame.contentWindow,d=w.document;
   let protagonistReference='',styleReference='';
+  // Subtitle timing adjustment applies equally to preview and exported video.
+  const originalSubtitleAt=w.subtitleAt;
+  if(typeof originalSubtitleAt==='function'){
+    const controls=d.createElement('div');
+    controls.style.cssText='margin:10px 0;padding:10px;background:#f5f7fa;border-radius:10px;font-size:14px';
+    controls.innerHTML='<label for="subtitleTimingAdjust" style="display:block;font-weight:700;margin-bottom:6px">字幕の切り替えタイミング</label><select id="subtitleTimingAdjust" style="width:100%;padding:10px;font-size:16px"><option value="auto">自動（さとるは1.5秒遅く）</option><option value="-1">1秒早く</option><option value="-0.5">0.5秒早く</option><option value="0">調整なし</option><option value="0.5">0.5秒遅く</option><option value="1">1秒遅く</option><option value="1.5">1.5秒遅く</option><option value="2">2秒遅く</option><option value="2.5">2.5秒遅く</option><option value="3">3秒遅く</option></select><div style="margin-top:6px;font-size:12px;line-height:1.5">プレビューと完成動画に反映します。音声を聞きながら調整できます。自動は現在選択中の声を基準にします。</div>';
+    const preview=d.getElementById('playPreview');if(preview)preview.closest('.toolbar').insertAdjacentElement('afterend',controls);
+    w.subtitleAt=function(text,elapsed,duration,alignment){
+      const choice=d.getElementById('subtitleTimingAdjust')?.value||'auto';
+      const voice=d.getElementById('voice')?.value||'';
+      const delay=choice==='auto'?(voice==='fish:297a6fd278df47c3b9da9bfdf55ac89a'?1.5:0):Number(choice)||0;
+      return originalSubtitleAt.call(w,text,Math.max(0,Number(elapsed)-delay),duration,alignment);
+    };
+  }
+
   const styleEl=d.createElement('style');
   styleEl.textContent='.yt-short .pic,.yt-short .previewScreen{aspect-ratio:9/16!important;max-width:360px;margin-left:auto;margin-right:auto}.yt-short .sceneLabel,.yt-short .previewTitle{max-width:84%;font-size:clamp(14px,4vw,22px)}.yt-short .subtitle{left:7%;right:7%;bottom:8%;font-size:4.3cqw;line-height:1.32;overflow-wrap:anywhere}.yt-short #completedVideo{max-width:360px;margin-left:auto!important;margin-right:auto!important}.yt-short #downloadVideo{max-width:360px;margin-left:auto;margin-right:auto}.refGrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:10px}.refCard{border:1px solid #dce1e8;border-radius:11px;padding:10px;background:#f8f9fc}.refCard label{margin:0 0 6px!important}.refCard input[type=file]{font-size:12px;padding:7px}.refPreview{display:none;width:100%;max-height:120px;object-fit:contain;background:#e9edf4;border-radius:8px;margin-top:7px}.refState{font-size:11px;color:#6d7788;line-height:1.45;margin-top:5px}.setProtagonistRef{background:#fff7df!important;border-color:#e6c974!important}@media(max-width:560px){.refGrid{grid-template-columns:1fr}}';
   d.head.appendChild(styleEl);
