@@ -21,13 +21,18 @@ frame.addEventListener('load',()=>{
   if(typeof originalSubtitleAt==='function'){
     const controls=d.createElement('div');
     controls.style.cssText='margin:10px 0;padding:10px;background:#f5f7fa;border-radius:10px;font-size:14px';
-    controls.innerHTML='<label for="subtitleTimingAdjust" style="display:block;font-weight:700;margin-bottom:6px">字幕の切り替えタイミング</label><select id="subtitleTimingAdjust" style="width:100%;padding:10px;font-size:16px"><option value="auto">自動（さとるは1.5秒遅く）</option><option value="-1">1秒早く</option><option value="-0.5">0.5秒早く</option><option value="0">調整なし</option><option value="0.5">0.5秒遅く</option><option value="1">1秒遅く</option><option value="1.5">1.5秒遅く</option><option value="2">2秒遅く</option><option value="2.5">2.5秒遅く</option><option value="3">3秒遅く</option></select><div style="margin-top:6px;font-size:12px;line-height:1.5">プレビューと完成動画に反映します。音声を聞きながら調整できます。自動は現在選択中の声を基準にします。</div>';
+    controls.innerHTML='<label for="subtitleTimingAdjust" style="display:block;font-weight:700;margin-bottom:6px">字幕の切り替えタイミング</label><select id="subtitleTimingAdjust" style="width:100%;padding:10px;font-size:16px"><option value="auto">自動（さとるは音声の実時間に合わせる）</option><option value="-1">1秒早く</option><option value="-0.5">0.5秒早く</option><option value="0">調整なし</option><option value="0.5">0.5秒遅く</option><option value="1">1秒遅く</option><option value="1.5">1.5秒遅く</option><option value="2">2秒遅く</option><option value="2.5">2.5秒遅く</option><option value="3">3秒遅く</option></select><div style="margin-top:6px;font-size:12px;line-height:1.5">プレビューと完成動画に反映します。音声を聞きながら調整できます。自動は現在選択中の声を基準にします。</div>';
     const preview=d.getElementById('playPreview');if(preview)preview.closest('.toolbar').insertAdjacentElement('afterend',controls);
     w.subtitleAt=function(text,elapsed,duration,alignment){
       const choice=d.getElementById('subtitleTimingAdjust')?.value||'auto';
       const voice=d.getElementById('voice')?.value||'';
-      const delay=choice==='auto'?(voice==='fish:297a6fd278df47c3b9da9bfdf55ac89a'?1.5:0):Number(choice)||0;
-      return originalSubtitleAt.call(w,text,Math.max(0,Number(elapsed)-delay),duration,alignment);
+      const isSatoru=voice==='fish:297a6fd278df47c3b9da9bfdf55ac89a';
+      // Fish Audio alignment may be absent or offset from the actual audio timeline.
+      // For Satoru, distribute subtitles over the decoded audio duration instead
+      // of applying a fixed 1.5-second delay to every caption boundary.
+      const delay=choice==='auto'?0:Number(choice)||0;
+      const safeAlignment=choice==='auto'&&isSatoru?[]:alignment;
+      return originalSubtitleAt.call(w,text,Math.max(0,Number(elapsed)-delay),duration,safeAlignment);
     };
   }
 
