@@ -8,7 +8,7 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}</style>
 </head>
 <body>
-<iframe id="app" src="youtube-video-maker-core.html?v=20261021-ai-cast-v2" allow="microphone;camera"></iframe>
+<iframe id="app" src="youtube-video-maker-core.html?v=20261031-narration-pause1" allow="microphone;camera"></iframe>
 <script>
 const frame=document.getElementById('app');
 let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=null,currentStream=null,currentAudioCtx=null;
@@ -31,7 +31,7 @@ frame.addEventListener('load',()=>{
       // For Satoru, distribute subtitles over the decoded audio duration instead
       // of applying a fixed 1.5-second delay to every caption boundary.
       const delay=choice==='auto'?0:Number(choice)||0;
-      const safeAlignment=choice==='auto'&&isSatoru?[]:alignment;
+      const safeAlignment=choice==='auto'&&isSatoru&&!alignment?.[0]?.pauseTimeline?[]:alignment;
       return originalSubtitleAt.call(w,text,Math.max(0,Number(elapsed)-delay),duration,safeAlignment);
     };
   }
