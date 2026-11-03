@@ -70,8 +70,20 @@ function showSavedButton(id){
 function save(){if(current)localStorage.setItem(KEY,JSON.stringify(current));else localStorage.removeItem(KEY)}
 function captionList(s,duration){const out=[];let start=0,last='';const caption=t=>second?speechCaption(s,t,duration):subtitleAt(s.text,t,duration,s.alignment||[]);for(let t=0;t<duration;t+=.1){const text=String(caption(t)||'');if(text!==last){if(last)out.push({start,end:Math.min(duration,t),text:last});start=t;last=text;}}if(last)out.push({start,end:duration,text:last});return out;}
 async function start(){
- if(!second){try{if(typeof window.ensureVideoSubtitleSync!=='function')throw Error('字幕同期機能を読み込めませんでした。ページを再読込してください');await window.ensureVideoSubtitleSync()}catch(e){return message('字幕同期が完了していません：'+e.message)}}
+ // A visible acknowledgement must precede potentially slow subtitle analysis.
+ message('ボタンを受け付けました。字幕同期と書き出し準備を確認しています…');
  if(pending||current&&['uploading','queued','running'].includes(current.status))return message('書き出しを受付済みです。戻ると進捗を確認できます。');
+ if(!second){
+  try{
+   if(typeof window.ensureVideoSubtitleSync!=='function')throw Error('字幕同期機能を読み込めませんでした。');
+   message('字幕の発話時刻を確認しています…');
+   await Promise.race([
+    Promise.resolve().then(()=>window.ensureVideoSubtitleSync()),
+    new Promise((_,reject)=>setTimeout(()=>reject(Error('字幕同期の確認が90秒以内に終わりませんでした。音声同期機能を確認してください。')),90000))
+   ]);
+  }catch(e){message('書き出しを開始できません：'+(e?.message||String(e)));return}
+ }
+ message('字幕同期を確認しました。書き出し素材を検査しています…');
  if(second){if(!project?.scenes?.length)return;project.scenes.forEach((_,i)=>sync(i))}
  const scenes=second?project.scenes:getScenesReady();if(!scenes.length||scenes.some(s=>!(s.image||s.video)||!s.audio))return message('全シーンの画像・映像と音声を先に完成させてください。');
  if(document.querySelector('.scene[data-audio-outdated="1"],.scene[data-audio-generating="1"],.scene[data-image-generating="1"]'))return message('変更した文章の音声を作り直し、生成が終わってから書き出してください。');
@@ -101,7 +113,7 @@ async function poll(){if(!current||pending)return;const card=$(second?'videoCard
  if(d.status==='uploading'){await api('cancel',{id:current.id});current=null;save();message('素材の送信途中で画面を離れたため、もう一度書き出してください。');return}
  cancelState(true);const bar=$('exportBar');if(bar)bar.style.width=d.progress+'%';message(d.status==='queued'?'受付完了・サーバーの起動を要求済み。ほかのサイトへ移動できます。開始待ちには数分かかる場合があります。':'サーバーで動画を書き出し中… '+d.progress+'%。ほかのサイトやYouTubeへ移動できます。');schedule();
  }catch(e){message('書き出し状況を確認できません：'+e.message+'。サーバーの処理は画面と独立しています。');schedule()}}
-function bind(){const b=button();if(!b||b.dataset.serverExportBound)return;b.dataset.serverExportBound='1';b.textContent=second?'サーバーで字幕付き動画を書き出す':'サーバーで動画を書き出す';b.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();start()},true);
+function bind(){const b=button();if(!b||b.dataset.serverExportBound)return;b.dataset.serverExportBound='1';b.textContent=second?'サーバーで字幕付き動画を書き出す':'サーバーで動画を書き出す';b.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();message('書き出しボタンを受け付けました…');Promise.resolve().then(start).catch(err=>message('書き出しエラー：'+(err?.message||String(err))))},true);
  const note=document.createElement('div');note.style.cssText='font-size:12px;line-height:1.6;margin-top:8px;color:#6d7788';note.textContent='受付後すぐにサーバーへ起動を要求します。受付完了後は、ほかのサイトを見ても書き出しを継続します。受付時の構成で作成します。この画面へ戻ると完成した動画を保存できます。';b.after(note);
  const cancel=document.createElement('button');cancel.id='cancelServerExport';cancel.type='button';cancel.className=second?'btn':'subbtn';cancel.textContent='サーバー書き出しを中止';cancel.hidden=true;cancel.style.cssText='margin-top:8px;background:#8f1d24;color:white;padding:10px;border-radius:10px';cancel.onclick=async()=>{if(!current||!confirm('サーバーでの書き出しを中止しますか？'))return;try{await api('cancel',{id:current.id});current.status='cancelled';save();clearTimeout(timer);cancel.hidden=true;message('書き出しを中止しました。')}catch(e){message('中止できませんでした：'+e.message)}};note.after(cancel);
 }
