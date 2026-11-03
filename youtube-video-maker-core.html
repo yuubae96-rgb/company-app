@@ -420,7 +420,7 @@ const initializedScenes=new WeakSet();
 function initializeNewScenes(){const o=load();scenes().forEach(row=>{if(initializedScenes.has(row))return;initializedScenes.add(row);if(row.dataset.readingPreserved==='1')return;const r=row.querySelector('.ttsNar'),nar=row.querySelector('.nar')?.value||'';if(r&&(!r.value||r.value===nar))r.value=narrationBreaths(apply(nar,o))})}
 new MutationObserver(()=>{install();initializeNewScenes()}).observe(document.body,{childList:true,subtree:true});install();initializeNewScenes();
 })();
-</script><script src="video-background-jobs.js?v=20261103-subtitle-audio2"></script><script src="https://yuubae96-rgb.github.io/company-app/video-scene-editor.js?v=20261012-map1"></script><script src="https://yuubae96-rgb.github.io/company-app/video-server-export.js?v=20261103-export-click-fix1"></script><script src="map-video-insert.js?v=20261014-animation1"></script><script src="https://yuubae96-rgb.github.io/nameplate-app/animated-explainer-renderer.js?v=20261014-characters1"></script><script src="https://yuubae96-rgb.github.io/nameplate-app/explainer-characters.js?v=20261014-characters1"></script><script src="https://yuubae96-rgb.github.io/nameplate-app/animated-explainer.js?v=20261014-characters1"></script><script src="https://yuubae96-rgb.github.io/nameplate-app/animated-explainer-bulk.js?v=20261021-pink-complete1"></script>
+</script><script src="video-background-jobs.js?v=20261103-export-unblock2"></script><script src="https://yuubae96-rgb.github.io/company-app/video-scene-editor.js?v=20261012-map1"></script><script src="https://yuubae96-rgb.github.io/company-app/video-server-export.js?v=20261103-export-unblock2"></script><script src="map-video-insert.js?v=20261014-animation1"></script><script src="https://yuubae96-rgb.github.io/nameplate-app/animated-explainer-renderer.js?v=20261014-characters1"></script><script src="https://yuubae96-rgb.github.io/nameplate-app/explainer-characters.js?v=20261014-characters1"></script><script src="https://yuubae96-rgb.github.io/nameplate-app/animated-explainer.js?v=20261014-characters1"></script><script src="https://yuubae96-rgb.github.io/nameplate-app/animated-explainer-bulk.js?v=20261021-pink-complete1"></script>
 <script>
 /* Unified feedback for long-running actions. */
 (()=>{
@@ -554,6 +554,7 @@ position();
 })();
 </script>
 <script src="youtube-character-animation.js?v=20261021-ai-cast-v2"></script>
-<script src="video-subtitle-sync.js?v=20261103-local-whisper1"></script>
+<script src="video-subtitle-sync.js?v=20261103-export-unblock2"></script>
 </body></html>
+
 
