@@ -73,17 +73,8 @@ async function start(){
  // A visible acknowledgement must precede potentially slow subtitle analysis.
  message('ボタンを受け付けました。字幕同期と書き出し準備を確認しています…');
  if(pending||current&&['uploading','queued','running'].includes(current.status))return message('書き出しを受付済みです。戻ると進捗を確認できます。');
- if(!second){
-  try{
-   if(typeof window.ensureVideoSubtitleSync!=='function')throw Error('字幕同期機能を読み込めませんでした。');
-   message('字幕の発話時刻を確認しています…');
-   await Promise.race([
-    Promise.resolve().then(()=>window.ensureVideoSubtitleSync()),
-    new Promise((_,reject)=>setTimeout(()=>reject(Error('字幕同期の確認が90秒以内に終わりませんでした。音声同期機能を確認してください。')),90000))
-   ]);
-  }catch(e){message('書き出しを開始できません：'+(e?.message||String(e)));return}
- }
- message('字幕同期を確認しました。書き出し素材を検査しています…');
+ const timing=!second&&typeof window.ensureVideoSubtitleSync==='function'?await window.ensureVideoSubtitleSync():null;
+ message(timing?.estimated?'字幕は推定タイミングで書き出します。素材を検査しています…':'書き出し素材を検査しています…');
  if(second){if(!project?.scenes?.length)return;project.scenes.forEach((_,i)=>sync(i))}
  const scenes=second?project.scenes:getScenesReady();if(!scenes.length||scenes.some(s=>!(s.image||s.video)||!s.audio))return message('全シーンの画像・映像と音声を先に完成させてください。');
  if(document.querySelector('.scene[data-audio-outdated="1"],.scene[data-audio-generating="1"],.scene[data-image-generating="1"]'))return message('変更した文章の音声を作り直し、生成が終わってから書き出してください。');
@@ -119,5 +110,6 @@ function bind(){const b=button();if(!b||b.dataset.serverExportBound)return;b.dat
 }
 launcherPanel();new MutationObserver(bind).observe(document.body,{childList:true,subtree:true});bind();if(current)setTimeout(poll,1000);window.addEventListener('pageshow',()=>{if(current)poll()});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&current)poll()});
 })();
+
 
 
