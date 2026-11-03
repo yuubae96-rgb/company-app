@@ -8,7 +8,7 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}</style>
 </head>
 <body>
-<iframe id="app" src="youtube-video-maker-core.html?v=20261103-subtitle-sync1" allow="microphone;camera"></iframe>
+<iframe id="app" src="youtube-video-maker-core.html?v=20261103-subtitle-audio2" allow="microphone;camera"></iframe>
 <script>
 const frame=document.getElementById('app');
 let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=null,currentStream=null,currentAudioCtx=null;
@@ -21,39 +21,12 @@ frame.addEventListener('load',()=>{
   if(typeof originalSubtitleAt==='function'){
     const controls=d.createElement('div');
     controls.style.cssText='margin:10px 0;padding:10px;background:#f5f7fa;border-radius:10px;font-size:14px';
-    controls.innerHTML='<label for="subtitleTimingAdjust" style="display:block;font-weight:700;margin-bottom:6px">字幕の切り替えタイミング</label><select id="subtitleTimingAdjust" style="width:100%;padding:10px;font-size:16px"><option value="auto">自動（さとるは音声の実時間に合わせる）</option><option value="-1">1秒早く</option><option value="-0.5">0.5秒早く</option><option value="0">調整なし</option><option value="0.5">0.5秒遅く</option><option value="1">1秒遅く</option><option value="1.5">1.5秒遅く</option><option value="2">2秒遅く</option><option value="2.5">2.5秒遅く</option><option value="3">3秒遅く</option></select><div style="margin-top:6px;font-size:12px;line-height:1.5">プレビューと完成動画に反映します。音声を聞きながら調整できます。自動は現在選択中の声を基準にします。</div>';
+    controls.innerHTML='<label for="subtitleTimingAdjust" style="display:block;font-weight:700;margin-bottom:6px">字幕の切り替えタイミング</label><select id="subtitleTimingAdjust" style="width:100%;padding:10px;font-size:16px"><option value="auto">自動（完成音声の発話時刻に合わせる）</option><option value="-1">1秒早く</option><option value="-0.5">0.5秒早く</option><option value="0">調整なし</option><option value="0.5">0.5秒遅く</option><option value="1">1秒遅く</option><option value="1.5">1.5秒遅く</option><option value="2">2秒遅く</option><option value="2.5">2.5秒遅く</option><option value="3">3秒遅く</option></select><div style="margin-top:6px;font-size:12px;line-height:1.5">プレビューと完成動画に反映します。音声を聞きながら調整できます。自動は完成した音声を解析した発話時刻を使います。</div>';
     const preview=d.getElementById('playPreview');if(preview)preview.closest('.toolbar').insertAdjacentElement('afterend',controls);
     w.subtitleAt=function(text,elapsed,duration,alignment){
       const choice=d.getElementById('subtitleTimingAdjust')?.value||'auto';
       const delay=choice==='auto'?0:Number(choice)||0;
       const t=Math.max(0,Number(elapsed)-delay);
-      // Use actual speech alignment for every voice when valid word timings exist.
-      // Never substitute a fixed Satoru-specific offset or discard its alignment.
-      // The previous subtitle remains until the following subtitle starts.
-      if(Array.isArray(alignment)&&alignment.length&&!alignment[0]?.pauseTimeline){
-        const timed=alignment.filter(x=>Number.isFinite(Number(x.start))&&Number.isFinite(Number(x.end))&&Number(x.end)>Number(x.start)&&String(x.text||'').trim());
-        if(timed.length){
-          const chunks=w.subtitleChunks?.(text);
-          if(Array.isArray(chunks)&&chunks.length){
-            const clean=x=>String(x||'').replace(/[\\s。、，,.！？!?：:；;・]/g,'');
-            const total=timed.reduce((n,x)=>n+clean(x.text).length,0);
-            const wanted=chunks.reduce((n,x)=>n+clean(x).length,0);
-            if(total>0&&wanted>0){
-              let charPos=0,wordPos=0;
-              for(let i=0;i<chunks.length-1;i++){
-                charPos+=clean(chunks[i]).length*total/wanted;
-                let seen=0;
-                while(wordPos<timed.length-1&&seen+clean(timed[wordPos].text).length<charPos){
-                  seen+=clean(timed[wordPos].text).length;wordPos++;
-                }
-                const nextStart=Number(timed[Math.min(wordPos+1,timed.length-1)].start);
-                if(t<nextStart)return chunks[i];
-              }
-              return chunks[chunks.length-1];
-            }
-          }
-        }
-      }
       return originalSubtitleAt.call(w,text,t,duration,alignment);
     };
   }
@@ -216,6 +189,7 @@ frame.addEventListener('load',()=>{
   cancel.onclick=()=>{exportCancelled=true;const status=d.getElementById('exportStatus');if(status)status.textContent='書き出しを停止しています…';try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(_){}};
   btn.onclick=async()=>{
     const status=d.getElementById('exportStatus'),bar=d.getElementById('exportBar'),dl=d.getElementById('downloadVideo');
+    try{if(typeof w.ensureVideoSubtitleSync!=='function')throw Error('字幕同期機能を読み込めませんでした。ページを再読込してください');await w.ensureVideoSubtitleSync()}catch(e){status.textContent='字幕同期が完了していません：'+e.message;return}
     const list=w.getScenesReady?.()||[];
     if(!list.length||list.some(s=>!s.image||!s.audio)){status.textContent='全シーンのAI画像とAIナレーションを先に作成してください。';return}
     if(!w.MediaRecorder){status.textContent='このブラウザは動画書き出しに対応していません。';return}
@@ -280,5 +254,6 @@ frame.addEventListener('load',()=>{
 <script src="https://yuubae96-rgb.github.io/company-app/video-storage-manager.js?v=20261020-manager2"></script>
 </body>
 </html>
+
 
 

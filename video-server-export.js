@@ -70,6 +70,7 @@ function showSavedButton(id){
 function save(){if(current)localStorage.setItem(KEY,JSON.stringify(current));else localStorage.removeItem(KEY)}
 function captionList(s,duration){const out=[];let start=0,last='';const caption=t=>second?speechCaption(s,t,duration):subtitleAt(s.text,t,duration,s.alignment||[]);for(let t=0;t<duration;t+=.1){const text=String(caption(t)||'');if(text!==last){if(last)out.push({start,end:Math.min(duration,t),text:last});start=t;last=text;}}if(last)out.push({start,end:duration,text:last});return out;}
 async function start(){
+ if(!second){try{if(typeof window.ensureVideoSubtitleSync!=='function')throw Error('字幕同期機能を読み込めませんでした。ページを再読込してください');await window.ensureVideoSubtitleSync()}catch(e){return message('字幕同期が完了していません：'+e.message)}}
  if(pending||current&&['uploading','queued','running'].includes(current.status))return message('書き出しを受付済みです。戻ると進捗を確認できます。');
  if(second){if(!project?.scenes?.length)return;project.scenes.forEach((_,i)=>sync(i))}
  const scenes=second?project.scenes:getScenesReady();if(!scenes.length||scenes.some(s=>!(s.image||s.video)||!s.audio))return message('全シーンの画像・映像と音声を先に完成させてください。');
@@ -106,4 +107,5 @@ function bind(){const b=button();if(!b||b.dataset.serverExportBound)return;b.dat
 }
 launcherPanel();new MutationObserver(bind).observe(document.body,{childList:true,subtree:true});bind();if(current)setTimeout(poll,1000);window.addEventListener('pageshow',()=>{if(current)poll()});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&current)poll()});
 })();
+
 
