@@ -8,7 +8,7 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#f2f4f7;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0;background:#f2f4f7}</style>
 </head>
 <body>
-<iframe id="app" src="youtube-video-maker-core.html?v=20261031-narration-pause1" allow="microphone;camera"></iframe>
+<iframe id="app" src="youtube-video-maker-core.html?v=20261103-subtitle-sync1" allow="microphone;camera"></iframe>
 <script>
 const frame=document.getElementById('app');
 let lastExportUrl='',exportCancelled=false,currentAudio=null,currentRecorder=null,currentStream=null,currentAudioCtx=null;
@@ -25,14 +25,36 @@ frame.addEventListener('load',()=>{
     const preview=d.getElementById('playPreview');if(preview)preview.closest('.toolbar').insertAdjacentElement('afterend',controls);
     w.subtitleAt=function(text,elapsed,duration,alignment){
       const choice=d.getElementById('subtitleTimingAdjust')?.value||'auto';
-      const voice=d.getElementById('voice')?.value||'';
-      const isSatoru=voice==='fish:297a6fd278df47c3b9da9bfdf55ac89a';
-      // Fish Audio alignment may be absent or offset from the actual audio timeline.
-      // For Satoru, distribute subtitles over the decoded audio duration instead
-      // of applying a fixed 1.5-second delay to every caption boundary.
       const delay=choice==='auto'?0:Number(choice)||0;
-      const safeAlignment=choice==='auto'&&isSatoru&&!alignment?.[0]?.pauseTimeline?[]:alignment;
-      return originalSubtitleAt.call(w,text,Math.max(0,Number(elapsed)-delay),duration,safeAlignment);
+      const t=Math.max(0,Number(elapsed)-delay);
+      // Use actual speech alignment for every voice when valid word timings exist.
+      // Never substitute a fixed Satoru-specific offset or discard its alignment.
+      // The previous subtitle remains until the following subtitle starts.
+      if(Array.isArray(alignment)&&alignment.length&&!alignment[0]?.pauseTimeline){
+        const timed=alignment.filter(x=>Number.isFinite(Number(x.start))&&Number.isFinite(Number(x.end))&&Number(x.end)>Number(x.start)&&String(x.text||'').trim());
+        if(timed.length){
+          const chunks=w.subtitleChunks?.(text);
+          if(Array.isArray(chunks)&&chunks.length){
+            const clean=x=>String(x||'').replace(/[\\s。、，,.！？!?：:；;・]/g,'');
+            const total=timed.reduce((n,x)=>n+clean(x.text).length,0);
+            const wanted=chunks.reduce((n,x)=>n+clean(x).length,0);
+            if(total>0&&wanted>0){
+              let charPos=0,wordPos=0;
+              for(let i=0;i<chunks.length-1;i++){
+                charPos+=clean(chunks[i]).length*total/wanted;
+                let seen=0;
+                while(wordPos<timed.length-1&&seen+clean(timed[wordPos].text).length<charPos){
+                  seen+=clean(timed[wordPos].text).length;wordPos++;
+                }
+                const nextStart=Number(timed[Math.min(wordPos+1,timed.length-1)].start);
+                if(t<nextStart)return chunks[i];
+              }
+              return chunks[chunks.length-1];
+            }
+          }
+        }
+      }
+      return originalSubtitleAt.call(w,text,t,duration,alignment);
     };
   }
 
