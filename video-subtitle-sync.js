@@ -1,7 +1,7 @@
 /* Completed-audio subtitle timing. Shared by preview, local and server exports. */
 (()=>{
 'use strict';
-const VERSION='local-whisper-v1',endpoint='https://vnnvuxccazkdzwqjmntz.supabase.co/functions/v1/video-subtitle-align';
+const VERSION='local-whisper-v1';
 const clean=s=>Array.from(String(s||'').normalize('NFKC').toLowerCase().replace(/[\u30a1-\u30f6]/g,c=>String.fromCharCode(c.charCodeAt(0)-0x60)).replace(/[\s\p{P}\p{S}]/gu,''));
 function captionCues(chunks,words){
  const target=chunks.flatMap(clean),spoken=[],times=[];
@@ -62,17 +62,24 @@ async function alignAudio(audio,text,state){
   }catch(e){if(state)state.textContent='字幕未同期：'+e.message;throw e}
  })();inflight.set(audio,task);try{await task}finally{inflight.delete(audio)}
 }
-window.ensureVideoSubtitleSync=async()=>{for(const [i,row]of [...document.querySelectorAll('.scene')].entries()){const audio=document.getElementById('audio'+i);if(audio?.getAttribute('src'))await alignAudio(audio,row.querySelector('.nar')?.value||'',document.getElementById('audioState'+i))}};
+// Playback/export only inspect cached timing. Heavy recognition is explicit.
+window.ensureVideoSubtitleSync=async()=>{
+ let estimated=0;
+ for(const [i,row]of [...document.querySelectorAll('.scene')].entries()){
+  const audio=document.getElementById('audio'+i);if(!audio?.getAttribute('src'))continue;
+  const meta=audio._alignment?.[0],text=row.querySelector('.nar')?.value||'';
+  const key=JSON.stringify(subtitleChunks(String(text).replace(/\[間:[0-9]+(?:\.[0-9]+)?\]/g,'')));
+  const exact=meta?.source===VERSION&&meta.captionKey===key&&meta.audioSrc===audio.src;
+  if(!exact){estimated++;const state=document.getElementById('audioState'+i);if(state)state.textContent='字幕：推定タイミング（完成音声解析は未実行・未完了）';}
+ }
+ return {estimated};
+};
 const original=window.subtitleAt;
-window.subtitleAt=function(text,elapsed,duration,alignment){const meta=alignment?.[0];if(meta?.source===VERSION){const key=JSON.stringify(subtitleChunks(String(text).replace(/\[間:[0-9]+(?:\.[0-9]+)?\]/g,'')));if(meta.captionKey===key)return cueAt(meta.cues,elapsed);return ''}return original(text,elapsed,duration,alignment)};
+window.subtitleAt=function(text,elapsed,duration,alignment){const meta=alignment?.[0];if(meta?.source===VERSION){const key=JSON.stringify(subtitleChunks(String(text).replace(/\[間:[0-9]+(?:\.[0-9]+)?\]/g,'')));if(meta.captionKey===key)return cueAt(meta.cues,elapsed);return original(text,elapsed,duration,[])}return original(text,elapsed,duration,alignment)};
 const panel=document.createElement('div');panel.style.cssText='margin:12px 0;padding:12px;background:#f5f7fa;border-radius:10px;font-size:13px';
 const button=document.createElement('button');button.type='button';button.className='subbtn';button.textContent='字幕を完成音声に合わせる';
-const note=document.createElement('div');note.style.cssText='margin-top:6px;line-height:1.6';note.textContent='さとる・青山龍星など全音声共通。完成音声を解析して字幕を合わせます。OpenAI APIの追加料金は不要です。初回は音声認識モデルのダウンロードが必要で、端末によっては処理に時間がかかります。保存済みの音声にも使えます。';
+const note=document.createElement('div');note.style.cssText='margin-top:6px;line-height:1.6';note.textContent='完成音声の解析はこのボタンから実行します。解析せずに書き出す場合は推定タイミングです。OpenAI APIの追加料金は不要です。初回はモデルのダウンロードが必要です。iPhoneでは時間がかかる・失敗する場合があります。解析中も書き出しは可能です。';
 panel.append(button,note);document.getElementById('result')?.insertAdjacentElement('beforebegin',panel);
-button.onclick=async()=>{button.disabled=true;note.textContent='字幕を完成音声に合わせています…';try{const audios=[...document.querySelectorAll('.scene audio')].filter(a=>a.getAttribute('src'));if(!audios.length)throw Error('先にナレーションを作成してください');await window.ensureVideoSubtitleSync();note.textContent='字幕同期が完了しました。プレビューと完成動画に同じ発話時刻を使います。'}catch(e){note.textContent='字幕未同期：'+e.message}finally{button.disabled=false}};
-const make=window.makeAudio;
-window.makeAudio=async function(i,...args){await make.call(this,i,...args);const audio=document.getElementById('audio'+i),row=document.querySelectorAll('.scene')[i];if(audio?.getAttribute('src'))try{await alignAudio(audio,row.querySelector('.nar')?.value||'',document.getElementById('audioState'+i))}catch(e){console.warn('字幕同期未完了',e.message)}};
-// Capture also protects export handlers installed by other modules after this script.
-let preparing=false;
-document.addEventListener('click',async event=>{const b=event.target.closest?.('#playPreview,#exportVideo,#startServerExport');if(!b||b.dataset.subtitleSyncReady==='1')return;event.preventDefault();event.stopImmediatePropagation();if(preparing)return;preparing=true;const disabled=b.disabled;b.disabled=true;try{await window.ensureVideoSubtitleSync();b.disabled=disabled;b.dataset.subtitleSyncReady='1';b.click()}catch(e){const state=document.getElementById(b.id==='playPreview'?'status':'exportStatus');if(state)state.textContent='字幕同期が完了していません：'+e.message}finally{delete b.dataset.subtitleSyncReady;b.disabled=disabled;preparing=false}},true);
+button.onclick=async()=>{button.disabled=true;note.textContent='字幕を完成音声に合わせています…';try{const audios=[...document.querySelectorAll('.scene audio')].filter(a=>a.getAttribute('src'));if(!audios.length)throw Error('先にナレーションを作成してください');for(const [i,row]of [...document.querySelectorAll('.scene')].entries()){const audio=document.getElementById('audio'+i);if(audio?.getAttribute('src'))await alignAudio(audio,row.querySelector('.nar')?.value||'',document.getElementById('audioState'+i))}note.textContent='字幕同期が完了しました。プレビューと完成動画に同じ発話時刻を使います。'}catch(e){note.textContent='字幕未同期：'+e.message}finally{button.disabled=false}};
+// Do not intercept export clicks or launch recognition during audio creation.
 })();
