@@ -92,8 +92,9 @@ async function requestVoicevoxTts(text,speaker=13){
  let last='外部音声サービスが生成を受け付けませんでした。';
  for(let attempt=0;attempt<5;attempt++){
   try{
-   const endpoint='https://api.tts.quest/v3/voicevox/synthesis?speaker='+encodeURIComponent(speaker);
-   const job=await json(endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:new URLSearchParams({text})});
+   const endpoint='https://api.tts.quest/v3/voicevox/synthesis';
+   // Restore the previously working request format: both text and speaker in POST form body.
+   const job=await json(endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:new URLSearchParams({text,speaker:String(speaker)})});
    if(!job.success){
     last=String(job.message||job.error||'VOICEVOXの受付に失敗しました。');
     if(/textRequired|textTooLong|invalidSpeaker|invalidText/i.test(last))throw Object.assign(Error(last),{permanent:true});
