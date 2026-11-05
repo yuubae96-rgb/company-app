@@ -74,49 +74,54 @@ async function requestVoicevoxTts(text,speaker=13){
  text=String(text||'').trim();
  if(!text)throw Error('読み上げる文章を入力してください。');
  async function json(url,options={}){
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
   try{
    const response=await fetch(url,{...options,signal:controller.signal});
-   let data;try{data=await response.json()}catch(_){throw Error('VOICEVOXの応答を読み取れませんでした（HTTP '+response.status+'）。')}
-   if(!response.ok&&response.status!==429)throw Error('VOICEVOX通信エラー（HTTP '+response.status+'）。');
+   const raw=await response.text();
+   let data;try{data=JSON.parse(raw)}catch(_){throw Error('VOICEVOX応答形式エラー（HTTP '+response.status+'）');}
+   if(!response.ok){
+    const detail=String(data.message||data.error||data.detail||'').slice(0,180);
+    const error=Error('VOICEVOX HTTP '+response.status+(detail?'：'+detail:''));
+    error.status=response.status;
+    if(response.status>=400&&response.status<500&&response.status!==408&&response.status!==429)error.permanent=true;
+    throw error;
+   }
    return data;
   }finally{clearTimeout(timer)}
  }
- let last='外部音声サービスが生成に失敗しました。';
- for(let attempt=0;attempt<3;attempt++){
+ let last='外部音声サービスが生成を受け付けませんでした。';
+ for(let attempt=0;attempt<5;attempt++){
   try{
-   // speaker is a query parameter in the provider's documented API.
    const endpoint='https://api.tts.quest/v3/voicevox/synthesis?speaker='+encodeURIComponent(speaker);
    const job=await json(endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:new URLSearchParams({text})});
    if(!job.success){
-    last=String(job.message||job.error||'VOICEVOXが混雑しています。');
+    last=String(job.message||job.error||'VOICEVOXの受付に失敗しました。');
     if(/textRequired|textTooLong|invalidSpeaker|invalidText/i.test(last))throw Object.assign(Error(last),{permanent:true});
-    if(attempt<2)await sleep(Math.max(2,Number(job.retryAfter)||2)*1000);
+    if(attempt<4)await sleep(Math.min(30000,Math.max(3,Number(job.retryAfter)||3)*1000+attempt*3000));
     continue;
    }
    if(!job.audioStatusUrl)throw Error('VOICEVOXの処理状況URLを取得できませんでした。');
-   const deadline=Date.now()+180000;
-   let statusFailures=0;
+   const deadline=Date.now()+180000;let statusFailures=0;
    while(Date.now()<deadline){
     let status;
     try{status=await json(job.audioStatusUrl,{cache:'no-store'});statusFailures=0}
-    catch(e){if(++statusFailures>=3)throw e;await sleep(2000);continue}
-    if(status.isAudioError)throw Error('外部VOICEVOXサービスが音声の合成に失敗しました。');
+    catch(e){if(e.permanent||++statusFailures>=4)throw e;await sleep(3000);continue}
+    if(status.isAudioError)throw Error('外部VOICEVOXサービスで音声合成に失敗しました。');
     if(status.isAudioReady){
      const url=job.mp3DownloadUrl||job.wavDownloadUrl;
      if(!url)throw Error('VOICEVOX音声URLを取得できませんでした。');
      return url;
     }
-    await sleep(1000);
+    await sleep(1500);
    }
    throw Error('VOICEVOXの生成待ちが180秒を超えました。');
   }catch(e){
    if(e.permanent)throw e;
    last=e.name==='AbortError'?'VOICEVOXとの通信がタイムアウトしました。':e.message;
-   if(attempt<2)await sleep(2000*(attempt+1));
+   if(attempt<4)await sleep(Math.min(30000,4000*(attempt+1)));
   }
  }
- throw Error(last+' 自動再試行を3回行いました。時間を置いて、この場面の音声を再作成してください。');
+ throw Error(last+'（5回試行）。VOICEVOXの提供側が受付停止中の可能性があります。完成済みの画像・音声は保持されます。');
 }
 
 function narrationPauseParts(text){
