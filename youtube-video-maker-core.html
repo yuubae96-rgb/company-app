@@ -78,9 +78,37 @@ function base64AudioUrl(b64,mime='audio/mpeg'){const raw=atob(b64),bytes=new Uin
 // Serialize requests: the shared VOICEVOX service has a request interval limit.
 let voicevoxQueue=Promise.resolve();
 function voicevoxTts(text,speaker=13){
- const task=voicevoxQueue.then(()=>requestVoicevoxTts(text,speaker));
+ const task=voicevoxQueue.then(async()=>{
+  const urls=[];
+  async function append(part){
+   try{urls.push(await requestVoicevoxTts(part,speaker))}
+   catch(e){
+    if(!e.tooLong||[...part].length<2)throw e;
+    for(const shorter of splitVoicevoxText(part,Math.ceil([...part].length/2)))await append(shorter);
+   }
+  }
+  for(const part of splitVoicevoxText(text,120))await append(part);
+  if(!urls.length)throw Error('読み上げる文章を入力してください。');
+  if(urls.length===1)return urls[0];
+  return (await joinNarrationAudio(urls.map(url=>({url})),part=>part)).url;
+ });
  voicevoxQueue=task.catch(()=>{});
  return task;
+}
+function splitVoicevoxText(text,limit){
+ const chars=[...String(text||'').trim()],parts=[];
+ for(let offset=0;offset<chars.length;){
+  let end=Math.min(offset+limit,chars.length);
+  if(end<chars.length){
+   for(let i=end-1;i>=offset+Math.floor(limit/2);i--){
+    if(/[。！？!?、\n]/u.test(chars[i])){end=i+1;break}
+   }
+  }
+  const part=chars.slice(offset,end).join('').trim();
+  if(part)parts.push(part);
+  offset=end;
+ }
+ return parts;
 }
 async function requestVoicevoxTts(text,speaker=13){
  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -90,6 +118,7 @@ async function requestVoicevoxTts(text,speaker=13){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
   try{
    const response=await fetch(url,{...options,signal:controller.signal});
+   if(response.status===413)throw Object.assign(Error('VOICEVOX HTTP 413：文章が長すぎます。'),{permanent:true,tooLong:true});
    const raw=await response.text();
    let data;try{data=JSON.parse(raw)}catch(_){throw Error('VOICEVOX応答形式エラー（HTTP '+response.status+'）');}
    if(!response.ok){
@@ -110,7 +139,7 @@ async function requestVoicevoxTts(text,speaker=13){
    const job=await json(endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:new URLSearchParams({text,speaker:String(speaker)})});
    if(!job.success){
     last=String(job.message||job.error||'VOICEVOXの受付に失敗しました。');
-    if(/textRequired|textTooLong|invalidSpeaker|invalidText/i.test(last))throw Object.assign(Error(last),{permanent:true});
+    if(/textRequired|textTooLong|invalidSpeaker|invalidText/i.test(last))throw Object.assign(Error(last),{permanent:true,tooLong:/textTooLong/i.test(last)});
     if(attempt<4)await sleep(Math.min(30000,Math.max(3,Number(job.retryAfter)||3)*1000+attempt*3000));
     continue;
    }
@@ -144,13 +173,16 @@ function narrationPauseParts(text){
  if(last<text.length)out.push({text:text.slice(last)});return out;
 }
 async function generatePausedTts(text,voice,tone){
- const parts=narrationPauseParts(text),context=new (window.AudioContext||window.webkitAudioContext)({sampleRate:24000});
+ return joinNarrationAudio(narrationPauseParts(text),part=>generateTts(part.text,voice,tone));
+}
+async function joinNarrationAudio(parts,getAudio){
+ const context=new (window.AudioContext||window.webkitAudioContext)({sampleRate:24000});
  try{
   const segments=[],timeline=[];let length=0,speech=0;
   for(const part of parts){
    if(part.seconds){const n=Math.round(part.seconds*context.sampleRate);segments.push(new Float32Array(n));timeline.push({pauseTimeline:true,start:length/context.sampleRate,end:(length+n)/context.sampleRate,speechStart:speech,speechEnd:speech});length+=n;continue}
-   if(!part.text.trim())continue;
-   const t=await generateTts(part.text,voice,tone);
+   if(!part.url&&!part.text.trim())continue;
+   const t=await getAudio(part);
    try{const response=await fetch(t.url);if(!response.ok)throw Error('音声の読み込みに失敗しました');const buffer=await context.decodeAudioData(await response.arrayBuffer());const samples=new Float32Array(buffer.length);for(let ch=0;ch<buffer.numberOfChannels;ch++){const data=buffer.getChannelData(ch);for(let j=0;j<data.length;j++)samples[j]+=data[j]/buffer.numberOfChannels}
     timeline.push({pauseTimeline:true,start:length/context.sampleRate,end:(length+samples.length)/context.sampleRate,speechStart:speech,speechEnd:speech+buffer.duration});speech+=buffer.duration;segments.push(samples);length+=samples.length;
    }finally{if(t.url.startsWith('blob:'))URL.revokeObjectURL(t.url)}
@@ -358,7 +390,10 @@ document.addEventListener('click',e=>{const b=e.target.closest?.('.localImgBtn')
 document.addEventListener('change',e=>{if(e.target.matches?.('.localImageInput'))useLocalSceneImage(Number(e.target.dataset.i),e.target);if(e.target.id==='allSceneLocalImage')applyLocalImageAll(e.target)});
 let bulkAudioStop=false;async function rebuildAllVoices(){const scenes=[...document.querySelectorAll('.scene')];if(!scenes.length){$('voicePreviewState').textContent='先に動画構成を作ってください。';return}const b=$('replaceAllVoiceTop'),voiceName=$('voice').selectedOptions[0].textContent,state=$('allVoiceState');bulkAudioStop=false;b.disabled=true;b.textContent='■ 音声作成を中止';b.disabled=false;b.onclick=()=>{bulkAudioStop=true;b.disabled=true;b.textContent='停止中…'};if($('allTts'))$('allTts').disabled=true;try{for(let i=0;i<scenes.length;i++){if(bulkAudioStop)break;const msg=`${voiceName} で音声作成中… ${i+1} / ${scenes.length}`;if(state)state.textContent=msg;$('voicePreviewState').textContent=msg;await makeAudio(i,document.querySelectorAll('.ttsBtn')[i])}const msg=bulkAudioStop?'音声の一括作成を中止しました。':`全シーンを ${voiceName} に変更しました。`;if(state)state.textContent=msg;$('voicePreviewState').textContent=msg}catch(e){if(state)state.textContent='一括変更エラー: '+e.message}finally{b.disabled=false;b.textContent='🔄 選択中の声で全場面を作り直す';b.onclick=rebuildAllVoices;if($('allTts'))$('allTts').disabled=false}}
 $('replaceAllVoiceTop').onclick=rebuildAllVoices;
-async function checkReadings(options={}){const b=$('checkReadings'),box=$('readingResults'),scenes=[...document.querySelectorAll('.scene')],checkedSignature=videoReadingSignature();if(!scenes.length)return;b.disabled=true;b.textContent='🔎 チェック中…';box.textContent='難しい人名・地名・歴史用語を確認中…';try{const text=scenes.map((s,i)=>`【${i+1}】${s.querySelector('.nar').value}`).join('\n');let d,notice='';try{d=await api({action:'checkReadings',text});notice=d.fallbackFrom?'Geminiを利用できないためChatGPTへ自動切替しました。':d.provider==='openai'?'ChatGPTで確認しました。':'AIで確認しました。'}catch(apiError){d={items:[],aiUnavailable:true,message:'読み方チェックの通信・認証エラー：'+String(apiError.message||apiError)}}const aiVerified=!d.aiUnavailable;const failureReason=d.aiUnavailable?(d.message||'AIの応答を確認できませんでした。')+(d.diagnosticId?'（確認番号：'+d.diagnosticId+'）':''):'';const creditUnavailable=d.aiUnavailable&&/残高|クレジット|quota|billing|insufficient|resource.exhausted|payment.required|402/i.test(failureReason);if(d.aiUnavailable&&options.required&&!creditUnavailable)throw Error(failureReason+' 全シーンの生成は開始していません。');if(d.aiUnavailable){const dictionary=[['陳勝呉広の乱','ちんしょうごこうのらん'],['鴻門の会','こうもんのかい'],['劉邦','りゅうほう'],['項羽','こうう'],['韓信','かんしん'],['蕭何','しょうか'],['張良','ちょうりょう'],['范増','はんぞう'],['始皇帝','しこうてい'],['咸陽','かんよう'],['垓下','がいか'],['群雄割拠','ぐんゆうかっきょ'],['崩御','ほうぎょ'],['樊噲','はんかい'],['陳勝','ちんしょう'],['呉広','ごこう'],['宦官','かんがん'],['外戚','がいせき'],['科挙','かきょ']];const localItems=dictionary.filter(([term])=>text.includes(term)).filter(([term],i,arr)=>!arr.some(([other],j)=>i!==j&&other.includes(term))).map(([term,reading])=>({term,reading})); d={items:localItems};notice=failureReason+' 内蔵辞書の候補のみ表示しています。AIでの確認は未完了です。辞書にない語は下の欄で追加できます。';}if(checkedSignature!==videoReadingSignature()||scenes.some((r,i)=>r!==document.querySelectorAll('.scene')[i]))throw Error('確認中に原稿が変更されました。もう一度読み方を確認してください。');const HARD_KANJI_READINGS={'宦官':'かんがん','外戚':'がいせき','科挙':'かきょ','禅譲':'ぜんじょう','諡号':'しごう','勅令':'ちょくれい','廃嫡':'はいちゃく','摂政':'せっしょう','太閤':'たいこう','御璽':'ぎょじ','枢密院':'すうみついん','臣下':'しんか','冊封':'さくほう','皇嗣':'こうし','崩御':'ほうぎょ'};
+function isReadingCreditError(message){
+ return /(?:残高|クレジット).{0,12}(?:不足|ありません|枯渇|使い切)|insufficient_quota|credit_balance_exhausted|prepayment credits are depleted|no credits remaining|billing_hard_limit|payment[ _-]required|\bHTTP\s+402\b/i.test(message);
+}
+async function checkReadings(options={}){const b=$('checkReadings'),box=$('readingResults'),scenes=[...document.querySelectorAll('.scene')],checkedSignature=videoReadingSignature();if(!scenes.length)return;b.disabled=true;b.textContent='🔎 チェック中…';box.textContent='難しい人名・地名・歴史用語を確認中…';try{const text=scenes.map((s,i)=>`【${i+1}】${s.querySelector('.nar').value}`).join('\n');let d,notice='';try{d=await api({action:'checkReadings',text});notice=d.fallbackFrom?'Geminiを利用できないためChatGPTへ自動切替しました。':d.provider==='openai'?'ChatGPTで確認しました。':'AIで確認しました。'}catch(apiError){d={items:[],aiUnavailable:true,message:'読み方チェックの通信・認証エラー：'+String(apiError.message||apiError)}}const aiVerified=!d.aiUnavailable;const failureReason=d.aiUnavailable?(d.message||'AIの応答を確認できませんでした。')+(d.diagnosticId?'（確認番号：'+d.diagnosticId+'）':''):'';const creditUnavailable=d.aiUnavailable&&(d.creditUnavailable??isReadingCreditError(failureReason));if(d.aiUnavailable&&options.required&&!creditUnavailable)throw Error(failureReason+' 全シーンの生成は開始していません。');if(d.aiUnavailable){const dictionary=[['陳勝呉広の乱','ちんしょうごこうのらん'],['鴻門の会','こうもんのかい'],['劉邦','りゅうほう'],['項羽','こうう'],['韓信','かんしん'],['蕭何','しょうか'],['張良','ちょうりょう'],['范増','はんぞう'],['始皇帝','しこうてい'],['咸陽','かんよう'],['垓下','がいか'],['群雄割拠','ぐんゆうかっきょ'],['崩御','ほうぎょ'],['樊噲','はんかい'],['陳勝','ちんしょう'],['呉広','ごこう'],['宦官','かんがん'],['外戚','がいせき'],['科挙','かきょ']];const localItems=dictionary.filter(([term])=>text.includes(term)).filter(([term],i,arr)=>!arr.some(([other],j)=>i!==j&&other.includes(term))).map(([term,reading])=>({term,reading})); d={items:localItems};notice=failureReason+' 内蔵辞書の候補のみ表示しています。AIでの確認は未完了です。辞書にない語は下の欄で追加できます。';}if(checkedSignature!==videoReadingSignature()||scenes.some((r,i)=>r!==document.querySelectorAll('.scene')[i]))throw Error('確認中に原稿が変更されました。もう一度読み方を確認してください。');const HARD_KANJI_READINGS={'宦官':'かんがん','外戚':'がいせき','科挙':'かきょ','禅譲':'ぜんじょう','諡号':'しごう','勅令':'ちょくれい','廃嫡':'はいちゃく','摂政':'せっしょう','太閤':'たいこう','御璽':'ぎょじ','枢密院':'すうみついん','臣下':'しんか','冊封':'さくほう','皇嗣':'こうし','崩御':'ほうぎょ'};
 const normalizeReadingCandidate=x=>{const term=String(x?.term||'').trim(),reading=readingAsKatakana(x?.reading||'');if(!term||!reading||!text.includes(term))return null;
 // Already-readable katakana and unchanged readings do not need correction.
 if(!/[一-龯々〆ヶ]/u.test(term)||readingAsKatakana(term)===reading)return null;

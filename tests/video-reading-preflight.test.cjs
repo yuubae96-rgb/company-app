@@ -11,13 +11,14 @@ function harness(){
  const nar={value:'「チャールズ・リンドバーグ」です。'},reading={value:'「チャールズ・リンドバーグ」です。'};
  const audio={dataset:{subtitle:nar.value,ttsText:'チャールズリンドバーグです。'},getAttribute:()=> 'saved-audio'};
  const row={dataset:{},querySelector:q=>q==='.nar'?nar:q==='.ttsNar'?reading:null};
- const box={textContent:'',innerHTML:'',querySelectorAll:()=>[],prepend(){},scrollIntoView(){}};
- const elements={audio0:audio,exportVideo:{setAttribute(){}},exportReadiness:{textContent:''},audioState0:{textContent:''},readingResults:box,checkReadings:{},readingDictionary:{open:false}};
+ const box={textContent:'',innerHTML:'',querySelectorAll:()=>[],prepend(){},scrollIntoView(){},insertAdjacentElement(_where,element){elements[element.id]=element}};
+ const elements={audio0:audio,exportVideo:{setAttribute(){}},exportReadiness:{textContent:''},audioState0:{textContent:''},readingResults:box,checkReadings:{},readingDictionary:{open:false},applyAllReadings:{}};
  const calls=[];
- const ctx=vm.createContext({rows:()=>[row],$:id=>elements[id],narrationBreaths:x=>String(x),updateExportReadiness(){},document:{querySelectorAll:q=>q==='.scene'?[row]:[],createElement:()=>({})},esc:x=>x,readingAsKatakana:x=>x,Event:class {},window:{},api:async()=>{calls.push('check');return {items:[]}},failureNotice:x=>calls.push('error'),message(){},itemsFor:()=>{calls.push('items');return []},start:async()=>{calls.push('start');return true}});
+ const ctx=vm.createContext({rows:()=>[row],$:id=>elements[id],narrationBreaths:x=>String(x),updateExportReadiness(){},document:{querySelectorAll:q=>q==='.scene'?[row]:[],createElement:()=>({})},alert(){},esc:x=>x,readingAsKatakana:x=>x,Event:class {},window:{},api:async()=>{calls.push('check');return {items:[]}},failureNotice:x=>calls.push('error'),message(){},itemsFor:()=>{calls.push('items');return []},start:async()=>{calls.push('start');return true}});
+ vm.runInContext(between(core,'function normalizeSpeechText','async function generateTts'),ctx);
  vm.runInContext(between(background,'function speechIdentity','function imageRequest'),ctx);
  vm.runInContext(between(background,'const originalUpdateReadiness','const oldRender'),ctx);
- vm.runInContext(between(core,'async function checkReadings','function getScenesReady').split('function subtitleChunks')[0].split('function updateExportReadiness')[0],ctx);
+ vm.runInContext(between(core,'function isReadingCreditError','function getScenesReady').split('function subtitleChunks')[0].split('function updateExportReadiness')[0],ctx);
  // Only the preflight declarations are needed after the original check function.
  return {ctx,row,nar,reading,audio,calls,elements};
 }
@@ -34,7 +35,7 @@ test('bulk requests await a shared check and recheck changed narration',async()=
  h.nar.value+='変更';await vm.runInContext("launchGeneration(['audio'])",h.ctx);assert.equal(h.calls.filter(x=>x==='check').length,2);
 });
 test('candidates pause all generation until reviewed; failed check cannot launch',async()=>{
- const h=harness();h.ctx.api=async()=>({items:[{term:'室戸市',reading:'ムロトシ'}]});
+ const h=harness();h.nar.value='室戸市です。';h.ctx.api=async()=>({items:[{term:'室戸市',reading:'ムロトシ'}]});
  vm.runInContext(between(background,'let readingPreflight','function bindButtons'),h.ctx);
  assert.equal(await vm.runInContext("launchGeneration(['image','audio'])",h.ctx),false);assert.ok(!h.calls.includes('start'));assert.equal(h.elements.readingDictionary.open,true);
  assert.equal(await vm.runInContext("launchGeneration(['image','audio'])",h.ctx),true);
@@ -45,4 +46,20 @@ test('an edit while AI checks is rejected rather than certifying unchecked narra
  const h=harness();h.ctx.api=async()=>{h.nar.value='チェック中の変更';return {items:[]}};
  assert.equal(await vm.runInContext('ensureVideoReadingsChecked()',h.ctx),false);
  assert.match(h.elements.readingResults.textContent,/確認中に原稿が変更/);
+});
+
+test('exhausted reading credits allow bulk narration to start',async()=>{
+ const h=harness();
+ h.nar.value='始皇帝です。';
+ h.ctx.api=async()=>({items:[],aiUnavailable:true,creditUnavailable:true,message:'API残高がありません'});
+ vm.runInContext(between(background,'let readingPreflight','function bindButtons'),h.ctx);
+ assert.equal(await vm.runInContext("launchGeneration(['audio'])",h.ctx),true);
+ assert.deepEqual(h.calls,['items','start']);
+ assert.match(h.elements.readingResults.innerHTML,/始皇帝/);
+});
+
+test('ordinary rate limits still require a successful reading check',async()=>{
+ const h=harness();
+ h.ctx.api=async()=>({items:[],aiUnavailable:true,creditUnavailable:false,message:'APIの利用制限に達しました（HTTP 429）'});
+ assert.equal(await vm.runInContext('ensureVideoReadingsChecked()',h.ctx),false);
 });
