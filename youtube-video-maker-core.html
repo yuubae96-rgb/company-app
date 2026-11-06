@@ -653,6 +653,7 @@ window.showVideoCreditHelp=function(error,host=document.getElementById('status')
  box.dataset.notice=signature;box.replaceChildren();
  const title=document.createElement('strong');title.textContent='エラーが発生しました：'+info.task;box.appendChild(title);
  const note=document.createElement('div');note.textContent=info.service+'の'+info.task+'で、'+info.reason+'のエラーが出ています。そのため、このAIを使った'+info.task+'は完了できませんでした。';box.appendChild(note);
+ if(info.task==='読み方チェック'){const hint=document.createElement('div');hint.textContent='読み方の確認に関する案内です。音声が作成できたかは、上の進行状況で確認してください。';box.appendChild(hint)}
  if(info.fallback){const done=document.createElement('div');done.textContent='代わりに、入力原稿を変更せずにシーンへ分け、動画構成は完成しました。画像・音声はまだこの処理では作成していません。';done.style.cssText='margin-top:8px;font-weight:bold;color:#176343';box.appendChild(done)}
  const prompt=document.createElement('div');prompt.textContent='下のリンクから支払い設定・クレジット残高を確認し、必要に応じて補充してください。';prompt.style.cssText='margin-top:10px;font-weight:bold';box.appendChild(prompt);
  for(const key of info.provider?[info.provider]:['gemini','openai','fish']){
@@ -664,7 +665,7 @@ window.showVideoCreditHelp=function(error,host=document.getElementById('status')
 const seen=new WeakMap();
 function scan(){for(const host of document.querySelectorAll('#status,#backgroundJobStatus,#backgroundFailureNotice,#topicBatchStatus,#exportStatus,#readingResults,#sceneTitleStatus,.audioState,.imageGenerationState,.actionFeedback')){
  const text=host.textContent;if(seen.get(host)===text)continue;seen.set(host,text);
- if(needsBilling(text))window.showVideoCreditHelp(text,host,{task:host.classList.contains('audioState')?'AI音声作成':undefined});
+ if(needsBilling(text))window.showVideoCreditHelp(text,host,{task:host.id==='readingResults'?'読み方チェック':host.classList.contains('audioState')?'AI音声作成':undefined});
 }}
 new MutationObserver(scan).observe(document.body,{childList:true,subtree:true,characterData:true});scan();
 window.describeVideoCreditError=describe;
