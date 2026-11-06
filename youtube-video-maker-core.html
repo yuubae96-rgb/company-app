@@ -76,12 +76,15 @@ async function api(body,attempt=0){if(body?.action==='generateScript'&&document.
 function pcmBase64ToWavUrl(b64,sampleRate=24000,channels=1){const raw=atob(b64),pcm=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)pcm[i]=raw.charCodeAt(i);const buffer=new ArrayBuffer(44+pcm.length),v=new DataView(buffer);const w=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};w(0,'RIFF');v.setUint32(4,36+pcm.length,true);w(8,'WAVE');w(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,channels,true);v.setUint32(24,sampleRate,true);v.setUint32(28,sampleRate*channels*2,true);v.setUint16(32,channels*2,true);v.setUint16(34,16,true);w(36,'data');v.setUint32(40,pcm.length,true);new Uint8Array(buffer,44).set(pcm);return URL.createObjectURL(new Blob([buffer],{type:'audio/wav'}))}
 function base64AudioUrl(b64,mime='audio/mpeg'){const raw=atob(b64),bytes=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);return URL.createObjectURL(new Blob([bytes],{type:mime}))}
 // Serialize requests: the shared VOICEVOX service has a request interval limit.
+// Reuse completed speech chunks during retries within this browser session.
+const voicevoxCompletedChunks=new Map();
+function voicevoxChunkKey(text,speaker){return String(speaker)+'|'+text}
 let voicevoxQueue=Promise.resolve();
 function voicevoxTts(text,speaker=13){
  const task=voicevoxQueue.then(async()=>{
   const urls=[];
   async function append(part){
-   try{urls.push(await requestVoicevoxTts(part,speaker))}
+   try{const key=voicevoxChunkKey(part,speaker);let url=voicevoxCompletedChunks.get(key);if(!url){url=await requestVoicevoxTts(part,speaker);voicevoxCompletedChunks.set(key,url)}urls.push(url)}
    catch(e){
     if(!e.tooLong||[...part].length<2)throw e;
     for(const shorter of splitVoicevoxText(part,Math.ceil([...part].length/2)))await append(shorter);
@@ -455,6 +458,29 @@ finally{bulkImageRunning=false;previous.forEach(({el,disabled})=>el.disabled=dis
 }
 $('replaceAllStyleTop').onclick=rebuildAllImages;
 async function makeImage(i,b,options={}){const scene=b.closest('.scene'),narration=scene.querySelector('.nar')?.value.trim()||'',title=scene.querySelector('.sceneTitleInput')?.value.trim()||'',instructions=scene.querySelector('.prompt')?.value.trim()||'',p=imageContextPrompt(i),pic=$(`pic${i}`);if(!narration&&!instructions){b.textContent='文章または画像指示を入力してください';return false;}b.disabled=true;b.textContent='画像作成中…';try{await window.ensureStoryCharacters?.();const referenceImage='';const d=await api((window.characterIllustrationRequest||((x)=>x))({action:'generateImage',prompt:illustratedPrompt(p,options.style||selectedStyle()),style:options.style||selectedStyle(),topic:$('topic').value,sceneIndex:i+1,referenceImage,imageProvider:options.imageProvider||$('imageProvider')?.value||'auto'}));const src=`data:${d.mimeType||'image/png'};base64,${d.data}`;delete pic.dataset.video;pic.dataset.image=src;pic.innerHTML=`<img src="${src}" alt="scene"><span class="sceneLabel">${esc(scene.querySelector('.sceneTitleInput').value.trim())}</span>`;let tag=scene.querySelector('.imageAiResult');if(!tag){tag=document.createElement('div');tag.className='status imageAiResult';pic.insertAdjacentElement('afterend',tag)}tag.textContent='使用したAI：'+(d.provider==='openai'?'ChatGPT（OpenAI）':'Gemini')+(d.fallbackFrom?'（Geminiから自動切替）':'');pic.dataset.imageProvider=d.provider||'';b.textContent='画像を作り直す';return true}catch(e){b.textContent='画像エラー: '+e.message;return false}finally{b.disabled=bulkImageRunning;updateExportReadiness()}}
+// Retry only missing audio. Existing completed scene audio is never replaced.
+async function retryMissingSceneAudio(){
+ const rows=[...document.querySelectorAll('.scene')],failed=[];
+ for(let i=0;i<rows.length;i++){
+  const audio=document.getElementById('audio'+i);
+  if(audio?.getAttribute('src'))continue;
+  const button=rows[i].querySelector('.ttsBtn');
+  if(!button){failed.push(i+1);continue}
+  await makeAudio(i,button);
+  if(!audio?.getAttribute('src'))failed.push(i+1);
+ }
+ const status=document.getElementById('retryMissingAudioStatus');
+ if(status)status.textContent=failed.length?'未完成：'+failed.join('、')+'ページ。完成済み音声は保持しています。':'すべての音声が完成しました。';
+}
+function installRetryMissingAudio(){
+ if(document.getElementById('retryMissingAudio'))return;
+ const target=document.getElementById('result');if(!target)return;
+ const wrap=document.createElement('div');wrap.style.cssText='padding:12px;margin:12px 0;border:1px solid #d9e2ed;border-radius:10px;background:#f7fafc';
+ wrap.innerHTML='<button type="button" class="subbtn blue" id="retryMissingAudio">🔄 未完成の音声だけ再試行</button><div id="retryMissingAudioStatus" role="status" style="margin-top:8px;font-size:13px"></div>';
+ target.parentNode.insertBefore(wrap,target);
+ wrap.querySelector('button').onclick=async function(){this.disabled=true;try{await retryMissingSceneAudio()}finally{this.disabled=false}};
+}
+document.addEventListener('DOMContentLoaded',installRetryMissingAudio);
 async function makeAudio(i,b){const scene=b.closest('.scene'),displayText=narrationBreaths(scene.querySelector('.nar').value.trim()),ttsText=normalizeSpeechText(scene.querySelector('.ttsNar')?.value.trim()||displayText),a=$(`audio${i}`),st=$(`audioState${i}`);if(!displayText||!ttsText)return;b.disabled=true;b.textContent='音声作成中…';st.textContent='AIナレーションを生成しています…';try{const t=await generateTts(ttsText,$('voice').value,$('tone').value);a.src=t.url;a.style.display='block';a.dataset.subtitle=displayText;a.dataset.ttsText=ttsText;a._alignment=Array.isArray(t.alignment)?t.alignment:[];scene.querySelector('.nar').value=displayText;scene.querySelector('.ttsNar').value=ttsText;st.textContent=`完成：${$('voice').selectedOptions[0].textContent}${ttsText!==displayText?'（読み方修正あり）':''}`;b.textContent='音声を作り直す'}catch(e){st.textContent='音声エラー: '+e.message;b.textContent='AIナレーションを作る'}finally{b.disabled=false}}
 function captionWordUnits(text){if(typeof Intl==='undefined'||!Intl.Segmenter)return [...String(text||'')];const words=[];for(const item of new Intl.Segmenter('ja',{granularity:'word'}).segment(String(text||''))){const w=item.segment;if(words.length&&(/^[ぁ-ん]{1,2}$/.test(w)||/^[、，,。！？!?]+$/.test(w)))words[words.length-1]+=w;else words.push(w)}return words}
 function naturalCaptionChunks(text,max=36){const src=String(text||'').replace(/\s+/g,' ').trim();if(!src)return[];const parts=[];let part='';for(const ch of src){part+=ch;if(/[。、，,！？!?]/.test(ch)){parts.push(part);part=''}}if(part)parts.push(part);const out=[];let group='';const add=piece=>{if(group&&group.length+piece.length>max){out.push(group);group=''}group+=piece};for(const p of parts){if(p.length>max){for(const word of captionWordUnits(p))add(word)}else add(p);if((/[。！？!?]$/.test(p)||(/[、，,]$/.test(p)&&group.length>=18))&&group){out.push(group);group=''}}if(group)out.push(group);return out}
