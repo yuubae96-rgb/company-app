@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { joinWav, splitVoicevoxText, voicevoxPart } from './voicevox.ts';
+import { joinWav, splitVoicevoxText, voicevoxPage, voicevoxPart } from './voicevox.ts';
 import { generate } from './generator.ts';
 import { createMediaStore, decode64, encode64 } from './media-storage.ts';
 import { planExplainer } from './explainer-plan.ts';
@@ -16,10 +16,13 @@ async function kick(){const token=await workerToken();await fetch(BASE+'/functio
 async function kickParallel(count=2){await Promise.allSettled(Array.from({length:count},()=>kick()));}
 function background(p:Promise<unknown>){EdgeRuntime.waitUntil(p.catch(e=>console.error('video background task',String(e.message).slice(0,200))));}
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
-// Each worker lease handles one short VOICEVOX request. Completed chunks
-// survive a new worker invocation, and only the joined WAV is visible to clients.
+// Try one request per page. If it needs splitting, each lease handles one
+// chunk and saves progress before the next invocation.
 async function voicevoxStep(item:any,request:any){
- const parts=splitVoicevoxText(request.text,65);
+ const text=String(request.text||'').trim();
+ if(!text)throw Error('読み上げる文章を入力してください');
+ const speaker=Number(request.speaker??13);
+ const parts=splitVoicevoxText(text,65);
  const progress=request.voicevoxProgress||{chunks:[],retries:0};
  const chunks=progress.chunks;
  async function checkpoint(retries:number){
@@ -31,10 +34,15 @@ async function voicevoxStep(item:any,request:any){
   if(job?.cancelled)await db('video_background_items?id=eq.'+item.id+'&status=eq.queued',{status:'cancelled'},'PATCH');
   return true;
  }
- if(!parts.length)throw Error('読み上げる文章を入力してください');
+ if(!request.voicevoxProgress){
+  const page=await voicevoxPage(text,speaker);
+  if(page)return {data:encode64(page.bytes),mimeType:page.mimeType,provider:'voicevox',alignment:[]};
+  await checkpoint(0);
+  return null;
+ }
  if(chunks.length<parts.length){
   let audio:Uint8Array;
-  try{audio=await voicevoxPart(parts[chunks.length],Number(request.speaker??13));}
+  try{audio=await voicevoxPart(parts[chunks.length],speaker);}
   catch(e){
    if(progress.retries<2&&!(e as {permanent?:boolean}).permanent){await checkpoint(progress.retries+1);return null}
    throw Error('VOICEVOX：'+String((e as Error).message||e)+'（'+(chunks.length+1)+'/'+parts.length+'分割目）');
