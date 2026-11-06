@@ -13,10 +13,13 @@ export function splitVoicevoxText(text:string,limit:number){
  }
  return parts;
 }
+function voicevoxTimeout(){
+ return Object.assign(Error('VOICEVOXの生成待ちが90秒を超えました'),{timedOut:true});
+}
 async function synthesizePart(text:string,speaker:number,deadline:number,fetcher:typeof fetch,pause:(ms:number)=>Promise<unknown>,preferWav:boolean){
  async function json(url:string,options:any={}){
   const remaining=deadline-Date.now();
-  if(remaining<=0)throw Error('VOICEVOXの待ち時間を超えました');
+  if(remaining<=0)throw voicevoxTimeout();
   const r=await fetcher(url,{...options,signal:AbortSignal.timeout(Math.min(remaining,20000))});
   if(r.status===413)throw Object.assign(Error('VOICEVOX HTTP 413：文章が長すぎます'),{permanent:true,tooLong:true});
   let d:any;try{d=await r.json()}catch{throw Error('VOICEVOXの応答を読み取れませんでした（HTTP '+r.status+'）');}
@@ -41,7 +44,7 @@ async function synthesizePart(text:string,speaker:number,deadline:number,fetcher
  while(Date.now()<deadline){
   let status:any;
   try{status=await json(job.audioStatusUrl,{cache:'no-store'});failures=0}
-  catch(e){if(++failures>=3)throw e;await pause(2000);continue}
+  catch(e){if(Date.now()>=deadline)throw voicevoxTimeout();if(++failures>=3)throw e;await pause(2000);continue}
   if(status.isAudioError)throw Error('外部VOICEVOXサービスが音声合成に失敗しました');
   if(status.isAudioReady){
    const url=preferWav?job.wavDownloadUrl:job.mp3DownloadUrl||job.wavDownloadUrl;if(!url)throw Error('完成音声のURLがありません');
@@ -52,7 +55,7 @@ async function synthesizePart(text:string,speaker:number,deadline:number,fetcher
   }
   await pause(1500);
  }
- throw Error('VOICEVOXの生成待ちが90秒を超えました。未完成の音声を再試行してください');
+ throw voicevoxTimeout();
 }
 
 export function joinWav(parts:Uint8Array[]){
@@ -103,4 +106,15 @@ export async function voicevoxPart(text:string,speaker:number,fetcher:typeof fet
  }
  await append(text);
  return parts.length===1?parts[0]:joinWav(parts);
+}
+
+export async function voicevoxPage(text:string,speaker:number,fetcher:typeof fetch=fetch,pause=(ms:number)=>new Promise(r=>setTimeout(r,ms))){
+ if(!Number.isInteger(speaker)||speaker<0)throw Error('VOICEVOXの話者指定が不正です');
+ try{
+  return await synthesizePart(text,speaker,Date.now()+90000,fetcher,pause,false);
+ }catch(e){
+  const error=e as {tooLong?:boolean;timedOut?:boolean};
+  if(error.tooLong||error.timedOut)return null;
+  throw e;
+ }
 }
