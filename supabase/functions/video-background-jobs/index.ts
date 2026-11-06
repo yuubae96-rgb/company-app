@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { voicevox } from './voicevox.ts';
+import { joinWav, splitVoicevoxText, voicevoxPart } from './voicevox.ts';
 import { generate } from './generator.ts';
-import { createMediaStore } from './media-storage.ts';
+import { createMediaStore, decode64, encode64 } from './media-storage.ts';
 import { planExplainer } from './explainer-plan.ts';
 const ORIGIN='https://yuubae96-rgb.github.io';
 const BASE=Deno.env.get('SUPABASE_URL')!;
@@ -16,7 +16,71 @@ async function kick(){const token=await workerToken();await fetch(BASE+'/functio
 async function kickParallel(count=2){await Promise.allSettled(Array.from({length:count},()=>kick()));}
 function background(p:Promise<unknown>){EdgeRuntime.waitUntil(p.catch(e=>console.error('video background task',String(e.message).slice(0,200))));}
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
-async function work(){const item=await rpc('video_jobs_claim');if(!item)return;let result=null,error=null;try{const request=await mediaStore.readRequest(item.job_id,item.request);if(request.action==='generateVoicevoxTts')result=await voicevox(request);else{const response=await generate(new Request(BASE+'/functions/v1/video-ai-gemini',{method:'POST',headers:{Origin:ORIGIN,'Content-Type':'application/json'},body:JSON.stringify(request)}));result=await response.json();if(!response.ok)throw Error(result.error||'生成に失敗しました');}if(!result?.data)throw Error('生成結果が空でした');result=await mediaStore.saveResult(item.job_id,item.id,item.lease,result);}catch(e){result=null;error=String((e as Error).message||e).slice(0,800);}const finished=await rpc('video_jobs_finish',{p_id:item.id,p_lease:item.lease,p_result:result,p_error:error});if(finished===false&&result?.media)await mediaStore.remove([result.media.path]);if(finished===true&&item.request?.mediaRequest){await mediaStore.remove([item.request.mediaRequest.path]);await db('video_background_items?id=eq.'+item.id,{request:{archived:true}},'PATCH');}await kick();}
+// Each worker lease handles one short VOICEVOX request. Completed chunks
+// survive a new worker invocation, and only the joined WAV is visible to clients.
+async function voicevoxStep(item:any,request:any){
+ const parts=splitVoicevoxText(request.text,65);
+ const progress=request.voicevoxProgress||{chunks:[],retries:0};
+ const chunks=progress.chunks;
+ async function checkpoint(retries:number){
+  const changed=await db('video_background_items?id=eq.'+item.id+'&lease=eq.'+item.lease+'&status=eq.running',{
+   request:{...request,voicevoxProgress:{chunks,retries}},status:'queued',started_at:null,lease:null
+  },'PATCH');
+  if(!changed.length)return false;
+  const [job]=await db('video_background_jobs?id=eq.'+item.job_id+'&select=cancelled');
+  if(job?.cancelled)await db('video_background_items?id=eq.'+item.id+'&status=eq.queued',{status:'cancelled'},'PATCH');
+  return true;
+ }
+ if(!parts.length)throw Error('読み上げる文章を入力してください');
+ if(chunks.length<parts.length){
+  let audio:Uint8Array;
+  try{audio=await voicevoxPart(parts[chunks.length],Number(request.speaker??13));}
+  catch(e){
+   if(progress.retries<2&&!(e as {permanent?:boolean}).permanent){await checkpoint(progress.retries+1);return null}
+   throw Error('VOICEVOX：'+String((e as Error).message||e)+'（'+(chunks.length+1)+'/'+parts.length+'分割目）');
+  }
+  const saved=await mediaStore.saveResult(item.job_id,item.id,item.lease,{data:encode64(audio),mimeType:'audio/wav',provider:'voicevox'});
+  chunks.push(saved);
+  if(await checkpoint(0))return null;
+  await mediaStore.remove([saved.media.path]);
+  return null;
+ }
+ const audio:Uint8Array[]=[];
+ for(let offset=0;offset<chunks.length;offset+=8){
+  const batch=await Promise.all(chunks.slice(offset,offset+8).map((chunk:any)=>mediaStore.readResult(item.job_id,item.id,chunk)));
+  audio.push(...batch.map(part=>decode64(part.data)));
+ }
+ return {data:encode64(audio.length===1?audio[0]:joinWav(audio)),mimeType:'audio/wav',provider:'voicevox',alignment:[]};
+}
+async function work(){
+ const item=await rpc('video_jobs_claim');
+ if(!item)return;
+ let result=null,error=null,request;
+ try{
+  request=await mediaStore.readRequest(item.job_id,item.request);
+  if(request.action==='generateVoicevoxTts'){
+   result=await voicevoxStep(item,request);
+   if(!result){await kick();return;}
+  }else{
+   const response=await generate(new Request(BASE+'/functions/v1/video-ai-gemini',{method:'POST',headers:{Origin:ORIGIN,'Content-Type':'application/json'},body:JSON.stringify(request)}));
+   result=await response.json();
+   if(!response.ok)throw Error(result.error||'生成に失敗しました');
+  }
+  if(!result?.data)throw Error('生成結果が空でした');
+  result=await mediaStore.saveResult(item.job_id,item.id,item.lease,result);
+ }catch(e){result=null;error=String((e as Error).message||e).slice(0,800);}
+ const finished=await rpc('video_jobs_finish',{p_id:item.id,p_lease:item.lease,p_result:result,p_error:error});
+ if(finished===false&&result?.media)await mediaStore.remove([result.media.path]);
+ if(finished===true){
+  const paths=(request?.voicevoxProgress?.chunks||[]).map((chunk:any)=>chunk.media.path);
+  if(item.request?.mediaRequest)paths.push(item.request.mediaRequest.path);
+  if(paths.length){
+   await mediaStore.remove(paths);
+   await db('video_background_items?id=eq.'+item.id,{request:{archived:true}},'PATCH');
+  }
+ }
+ await kick();
+}
 async function cleanup(){
  const legacy=await db('video_background_items?status=eq.done&result->>data=not.is.null&select=id,job_id,result&limit=5');
  for(const item of legacy||[]){const stored=await mediaStore.saveResult(item.job_id,item.id,crypto.randomUUID(),item.result);const replaced=await rpc('video_jobs_archive_result',{p_id:item.id,p_result:stored});if(!replaced)await mediaStore.remove([stored.media.path]);}
@@ -24,7 +88,7 @@ async function cleanup(){
  return await rpc('video_jobs_prune_metadata');
 }
 
-function validate(items:any[]){if(!Array.isArray(items)||!items.length||items.length>120)throw Error('生成の件数を確認してください');return items.map((x:any)=>{if(!Number.isInteger(x.sceneIndex)||x.sceneIndex<0||x.sceneIndex>59||!['image','audio'].includes(x.kind))throw Error('場面の指定が不正です');const b=x.request||{};if(x.kind==='image'){if(b.action!=='generateImage'||!String(b.prompt||'').trim()||String(b.prompt).length>50000)throw Error('画像指示を確認してください');if(!['gemini','openai','auto'].includes(b.imageProvider||'auto'))throw Error('画像AIの指定を確認してください');}else if(!['generateFishTts','generateTts','generateVoicevoxTts'].includes(b.action)||!String(b.text||'').trim()||String(b.text).length>12000)throw Error('音声の文章を確認してください');return {sceneIndex:x.sceneIndex,kind:x.kind,request:b};});}
+function validate(items:any[]){if(!Array.isArray(items)||!items.length||items.length>120)throw Error('生成の件数を確認してください');return items.map((x:any)=>{if(!Number.isInteger(x.sceneIndex)||x.sceneIndex<0||x.sceneIndex>59||!['image','audio'].includes(x.kind))throw Error('場面の指定が不正です');const b=x.request||{};if(x.kind==='image'){if(b.action!=='generateImage'||!String(b.prompt||'').trim()||String(b.prompt).length>50000)throw Error('画像指示を確認してください');if(!['gemini','openai','auto'].includes(b.imageProvider||'auto'))throw Error('画像AIの指定を確認してください');}else if(!['generateFishTts','generateTts','generateVoicevoxTts'].includes(b.action)||!String(b.text||'').trim()||String(b.text).length>12000)throw Error('音声の文章を確認してください');return {sceneIndex:x.sceneIndex,kind:x.kind,request:b.action==='generateVoicevoxTts'?{action:b.action,text:b.text,speaker:b.speaker}:b};});}
 securityServe(async req=>{if(req.method==='OPTIONS')return reply({});try{if(req.method!=='POST')return reply({error:'Method not allowed'},405);const b=await req.json();if(b.action==='animationPlan'){const supplied=req.headers.get('x-video-worker-token');if(supplied&&supplied!==await workerToken())return reply({error:'Forbidden'},403);return reply(await planExplainer(b.scenes,(name:string)=>Deno.env.get(name)));}if(b.action==='storage-check'){const supplied=req.headers.get('x-video-worker-token');if(!supplied||supplied!==await workerToken())return reply({error:'Forbidden'},403);const job=crypto.randomUUID(),item=crypto.randomUUID();const stored=await mediaStore.saveResult(job,item,crypto.randomUUID(),{data:'AAECAwQF',mimeType:'audio/wav',provider:'storage-check'});let checked=false;try{const restored=await mediaStore.readResult(job,item,stored);checked=restored.data==='AAECAwQF';}finally{await mediaStore.remove([stored.media.path]);}return reply({roundTrip:checked,metadataOnly:!('data' in stored),metadataBytes:new TextEncoder().encode(JSON.stringify(stored)).length,deleted:true});}if(b.action==='cleanup'){const supplied=req.headers.get('x-video-worker-token');if(!supplied||supplied!==await workerToken())return reply({error:'Forbidden'},403);background(cleanup());return reply({accepted:true});}if(b.action==='work'){const supplied=req.headers.get('x-video-worker-token');if(!supplied||supplied!==await workerToken())return reply({error:'Forbidden'},403);background(work());return reply({accepted:true});}if(req.headers.get('origin')!==ORIGIN)return reply({error:'Forbidden origin'},403);if(!/^[a-f0-9]{64}$/.test(b.token||'')||!/^[-a-f0-9]{36}$/.test(b.jobId||''))return reply({error:'Invalid session'},401);const owner=await hash(b.token);if(b.action==='create'){const items=validate(b.items);for(const item of items)item.request=await mediaStore.saveRequest(b.jobId,item.request);if(JSON.stringify(b.snapshot||{}).length>250000)throw Error('構成が大きすぎます');await rpc('video_jobs_enqueue',{p_id:b.jobId,p_owner:owner,p_snapshot:b.snapshot||{},p_items:items});background(kickParallel(2));return reply({jobId:b.jobId,accepted:true});}
 const jobs=await db('video_background_jobs?id=eq.'+encodeURIComponent(b.jobId)+'&owner_hash=eq.'+owner+'&select=id,snapshot,cancelled,created_at');if(!jobs?.length)return reply({error:'この生成結果は見つかりません。保存期間は30日です。'},404);
 if(b.action==='status'){const items=await db('video_background_items?job_id=eq.'+b.jobId+'&select=id,scene_index,kind,status,error,ordinal&order=ordinal.asc');return reply({job:jobs[0],items});}
