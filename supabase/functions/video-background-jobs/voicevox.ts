@@ -1,4 +1,4 @@
-function splitVoicevoxText(text:string,limit:number){
+export function splitVoicevoxText(text:string,limit:number){
  const chars=[...String(text||'').trim()],parts=[];
  for(let offset=0;offset<chars.length;){
   let end=Math.min(offset+limit,chars.length);
@@ -15,7 +15,9 @@ function splitVoicevoxText(text:string,limit:number){
 }
 async function synthesizePart(text:string,speaker:number,deadline:number,fetcher:typeof fetch,pause:(ms:number)=>Promise<unknown>,preferWav:boolean){
  async function json(url:string,options:any={}){
-  const r=await fetcher(url,{...options,signal:AbortSignal.timeout(20000)});
+  const remaining=deadline-Date.now();
+  if(remaining<=0)throw Error('VOICEVOXの待ち時間を超えました');
+  const r=await fetcher(url,{...options,signal:AbortSignal.timeout(Math.min(remaining,20000))});
   if(r.status===413)throw Object.assign(Error('VOICEVOX HTTP 413：文章が長すぎます'),{permanent:true,tooLong:true});
   let d:any;try{d=await r.json()}catch{throw Error('VOICEVOXの応答を読み取れませんでした（HTTP '+r.status+'）');}
   if(!r.ok&&r.status!==429)throw Error('VOICEVOX通信エラー（HTTP '+r.status+'）');
@@ -43,17 +45,17 @@ async function synthesizePart(text:string,speaker:number,deadline:number,fetcher
   if(status.isAudioError)throw Error('外部VOICEVOXサービスが音声合成に失敗しました');
   if(status.isAudioReady){
    const url=preferWav?job.wavDownloadUrl:job.mp3DownloadUrl||job.wavDownloadUrl;if(!url)throw Error('完成音声のURLがありません');
-   const r=await fetcher(url,{signal:AbortSignal.timeout(20000)});
+   const r=await fetcher(url,{signal:AbortSignal.timeout(Math.max(1,Math.min(deadline-Date.now(),20000)))});
    if(!r.ok)throw Error('完成音声の取得に失敗しました（HTTP '+r.status+'）');
    const bytes=new Uint8Array(await r.arrayBuffer());if(!bytes.length)throw Error('完成音声が空でした');
    return {bytes,mimeType:preferWav?'audio/wav':r.headers.get('content-type')||(job.mp3DownloadUrl?'audio/mpeg':'audio/wav')};
   }
   await pause(1500);
  }
- throw Error('VOICEVOXの生成待ちが180秒を超えました。時間を置いて再試行してください');
+ throw Error('VOICEVOXの生成待ちが90秒を超えました。未完成の音声を再試行してください');
 }
 
-function joinWav(parts:Uint8Array[]){
+export function joinWav(parts:Uint8Array[]){
  const samples:Uint8Array[]=[];
  let format:Uint8Array|undefined;
  for(const bytes of parts){
@@ -88,22 +90,17 @@ function joinWav(parts:Uint8Array[]){
  return bytes;
 }
 
-export async function voicevox(b:any,fetcher:typeof fetch=fetch,pause=(ms:number)=>new Promise(r=>setTimeout(r,ms))){
- const parts=splitVoicevoxText(b.text,120),speaker=Number(b.speaker??13);
- if(!parts.length)throw Error('読み上げる文章を入力してください');
+export async function voicevoxPart(text:string,speaker:number,fetcher:typeof fetch=fetch,pause=(ms:number)=>new Promise(r=>setTimeout(r,ms))){
  if(!Number.isInteger(speaker)||speaker<0)throw Error('VOICEVOXの話者指定が不正です');
- const deadline=Date.now()+180000;
- const audio:Awaited<ReturnType<typeof synthesizePart>>[]=[];
- async function append(text:string,preferWav:boolean){
-  try{audio.push(await synthesizePart(text,speaker,deadline,fetcher,pause,preferWav))}
+ const deadline=Date.now()+90000;
+ const parts:Uint8Array[]=[];
+ async function append(part:string){
+  try{parts.push((await synthesizePart(part,speaker,deadline,fetcher,pause,true)).bytes)}
   catch(e){
-   if(!(e as {tooLong?:boolean}).tooLong||[...text].length<2)throw e;
-   for(const part of splitVoicevoxText(text,Math.ceil([...text].length/2)))await append(part,true);
+   if(!(e as {tooLong?:boolean}).tooLong||[...part].length<2)throw e;
+   for(const shorter of splitVoicevoxText(part,Math.ceil([...part].length/2)))await append(shorter);
   }
  }
- for(const part of parts)await append(part,parts.length>1);
- const bytes=audio.length===1?audio[0].bytes:joinWav(audio.map(part=>part.bytes));
- let encoded='';
- for(let i=0;i<bytes.length;i+=32768)encoded+=String.fromCharCode(...bytes.subarray(i,i+32768));
- return {data:btoa(encoded),mimeType:audio.length===1?audio[0].mimeType:'audio/wav',provider:'voicevox',alignment:[]};
+ await append(text);
+ return parts.length===1?parts[0]:joinWav(parts);
 }
