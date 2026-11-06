@@ -124,6 +124,15 @@ async function poll(manual=false){
 }
 async function cancel(){if(!active||!confirm('作成を中止しますか？作成中の処理は最後まで実行し、未開始分を中止します。'))return;try{for(const record of await projectRecords())await request('cancel',{},record);await poll(true)}catch(e){message('中止を受け付けられませんでした：'+e.message)}}
 async function retry(){const failed=(active?.visibleStatus||active?.status||[]).filter(x=>x.status==='failed');if(!failed.length)return;try{await start(failed.flatMap(x=>itemsFor([x.kind],true,[x.scene_index])))}catch(e){message('再試行を開始できませんでした：'+e.message)}}
+window.retryMissingVideoAudio=async()=>{
+ const scenes=rows();
+ if(!scenes.length)return '先に動画構成を作ってください。';
+ const indices=scenes.flatMap((row,i)=>$('audio'+i)?.getAttribute('src')||row.dataset.audioGenerating==='1'?[]:[i]);
+ if(!indices.length)return scenes.some(row=>row.dataset.audioGenerating==='1')?'未完成の音声はすでに作成中です。':'すべての音声が完成しています。';
+ try{
+  return await start(itemsFor(['audio'],true,indices))?'未完成の音声だけ受け付けました。完了は上部の進行状況で確認できます。':'音声を受け付けられませんでした。進行状況の詳細をご確認ください。';
+ }catch(e){return '音声を受け付けられませんでした：'+e.message;}
+};
 let readingPreflight=null;
 async function launchGeneration(kinds,all=false,indices){
  try{
