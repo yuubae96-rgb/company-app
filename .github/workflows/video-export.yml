@@ -25,7 +25,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install video renderer
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-noto-cjk python3-pil
+        timeout-minutes: 4
+        run: |
+          packages=()
+          command -v ffmpeg >/dev/null || packages+=(ffmpeg)
+          python3 -c 'from PIL import Image, ImageDraw, ImageFont, ImageColor' || packages+=(python3-pil)
+          test -r /usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc || packages+=(fonts-noto-cjk)
+          if (( ${#packages[@]} )); then
+            apt_options=(-o Acquire::Retries=0 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15)
+            if ! sudo apt-get "${apt_options[@]}" install -y --no-install-recommends "${packages[@]}"; then
+              sudo apt-get "${apt_options[@]}" update
+              sudo apt-get "${apt_options[@]}" install -y --no-install-recommends "${packages[@]}"
+            fi
+          fi
       - name: Render queued videos
         env:
           VIDEO_EXPORT_JOB_ID: ${{ inputs.job_id }}
