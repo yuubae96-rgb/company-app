@@ -17,10 +17,12 @@ function voicevoxTimeout(){
  return Object.assign(Error('VOICEVOXの生成待ちが90秒を超えました'),{timedOut:true});
 }
 async function synthesizePart(text:string,speaker:number,deadline:number,fetcher:typeof fetch,pause:(ms:number)=>Promise<unknown>,preferWav:boolean){
+ let responseStatus=0;
  async function json(url:string,options:any={}){
   const remaining=deadline-Date.now();
   if(remaining<=0)throw voicevoxTimeout();
   const r=await fetcher(url,{...options,signal:AbortSignal.timeout(Math.min(remaining,20000))});
+  responseStatus=r.status;
   if(r.status===413)throw Object.assign(Error('VOICEVOX HTTP 413：文章が長すぎます'),{permanent:true,tooLong:true});
   let d:any;try{d=await r.json()}catch{throw Error('VOICEVOXの応答を読み取れませんでした（HTTP '+r.status+'）');}
   if(!r.ok&&r.status!==429)throw Error('VOICEVOX通信エラー（HTTP '+r.status+'）');
@@ -38,7 +40,10 @@ async function synthesizePart(text:string,speaker:number,deadline:number,fetcher
   const retryAfter=Number(job?.retryAfter||0);job=null;
   if(attempt<3)await pause(Math.min(15000,Math.max(3000,retryAfter*1000,3000*(attempt+1))));
  }
- if(!job?.success)throw Error('VOICEVOXの受付に失敗しました：'+last+'（自動再試行済み）');
+ if(!job?.success){
+  console.warn('VOICEVOX acceptance failed',JSON.stringify({status:responseStatus,speaker,characters:[...text].length}));
+  throw Object.assign(Error('VOICEVOXの受付に失敗しました：'+last+'（自動再試行済み）'),{acceptanceFailed:true});
+ }
  if(!job.audioStatusUrl)throw Error('VOICEVOXの処理状況URLがありません');
  let failures=0;
  while(Date.now()<deadline){
@@ -113,8 +118,8 @@ export async function voicevoxPage(text:string,speaker:number,fetcher:typeof fet
  try{
   return await synthesizePart(text,speaker,Date.now()+90000,fetcher,pause,false);
  }catch(e){
-  const error=e as {tooLong?:boolean;timedOut?:boolean};
-  if(error.tooLong||error.timedOut)return null;
+  const error=e as {tooLong?:boolean;timedOut?:boolean;acceptanceFailed?:boolean};
+  if(error.tooLong||error.timedOut||(error.acceptanceFailed&&[...text].length>65))return null;
   throw e;
  }
 }
