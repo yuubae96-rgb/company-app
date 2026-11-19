@@ -325,7 +325,19 @@ function conciseSceneImagePrompt(narration){
  return '【場面の内容】'+(subject||source.slice(0,200))+'\n【映像の指示】この場面の中心となる人物・場所・出来事を、時代背景や服装・建築物を踏まえた一つの具体的な情景として描く。ナレーション全文を画像にせず、主題が一目で伝わる構図にする。画面内に文字・字幕・吹き出しを描かない。';
 }
 
+function numberedScriptSections(raw){
+ const text=String(raw||'');
+ const matches=[...text.matchAll(/(?:^|\n)[ \t]*([０-９0-9]{1,2})[.．、][ \t]*([^\n]+)/g)];
+ if(matches.length<2)return null;
+ const numbers=matches.map(m=>Number(m[1].replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0))));
+ if(numbers[0]!==1||!numbers.every((n,i)=>n===i+1))return null;
+ const sections=matches.map((m,i)=>text.slice(m.index+(m[0].startsWith('\n')?1:0),i+1<matches.length?matches[i+1].index:text.length).trim());
+ return sections.every(x=>x.length>0)?sections:null;
+}
 function manualScriptLocalModel(raw,pageCount){
+ const numbered=numberedScriptSections(raw);
+ if(numbered){return {title:$('topic')?.value.trim()||'入力原稿の動画構成',summary:'番号付き段落を維持して場面を分割しました。',scenes:numbered.map(narration=>({title:'',narration,ttsNarration:narration,imagePrompt:conciseSceneImagePrompt(narration),seconds:Math.max(3,Math.round(narration.length/5)),factCheck:'入力原稿の番号付き段落を維持。'}))};}
+
  // Keep every character; only select scene boundaries at sentence ends or line breaks.
  const parts=String(raw).match(/[^。！？!?\n]+[。！？!?]+[」』”）)]*\s*|[^。！？!?\n]+(?:\n+|$)|[\s\S]/g)||[String(raw)];
  const count=Math.min(Math.max(1,Number(pageCount)||1),parts.length);
@@ -351,7 +363,8 @@ raw=originalRaw.trim();
 if(!raw){$('status').textContent='手入力する文章を入れてください。';return false}
 if(raw.length>60000){$('status').textContent='入力原稿は60000文字以内にしてください。全文を扱うため、短く分けて作成してください。';return false}
 if(buildManualScript.running)return false;
-const pageCount=requestVideoPageCount();if(pageCount===null)return false;
+const numbered=numberedScriptSections(originalRaw);
+ const pageCount=numbered&&numbered.length>=6&&numbered.length<=60?numbered.length:requestVideoPageCount();if(pageCount===null)return false;
 if($('keepOriginalScript')?.checked){
  const local=manualScriptLocalModel(originalRaw,pageCount);
  render(local,{preserveNarration:true,preserveReading:true,skipAutoTitles:true});
