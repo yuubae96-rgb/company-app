@@ -25,14 +25,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install video renderer
-        timeout-minutes: 4
+        timeout-minutes: 15
         run: |
           packages=()
           command -v ffmpeg >/dev/null || packages+=(ffmpeg)
-          python3 -c 'from PIL import Image, ImageDraw, ImageFont, ImageColor' || packages+=(python3-pil)
+          python3 -c 'from PIL import Image, ImageDraw, ImageFont, ImageColor' || python3 -m pip install --disable-pip-version-check --retries 2 --timeout 30 Pillow==11.3.0
           test -r /usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc || packages+=(fonts-noto-cjk)
           if (( ${#packages[@]} )); then
-            apt_options=(-o Acquire::Retries=0 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15)
+            apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
             if ! sudo apt-get "${apt_options[@]}" install -y --no-install-recommends "${packages[@]}"; then
               sudo apt-get "${apt_options[@]}" update
               sudo apt-get "${apt_options[@]}" install -y --no-install-recommends "${packages[@]}"
