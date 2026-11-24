@@ -1,4 +1,4 @@
-import json,os,time,urllib.request,urllib.parse,tempfile,subprocess,math
+import json,os,time,urllib.request,urllib.parse,tempfile,subprocess,math,traceback
 from pathlib import Path
 from PIL import Image,ImageDraw,ImageFont,ImageColor
 
@@ -41,7 +41,9 @@ def overlay(path,manifest,scene,caption):
     im.save(path)
 def run(cmd):
     p=subprocess.run(cmd,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=1800)
-    if p.returncode:raise RuntimeError('動画の組み立てに失敗しました。素材形式を確認して再試行してください。')
+    if p.returncode:
+        print('FFmpeg failed:',p.stderr.decode('utf-8',errors='replace')[-4000:],flush=True)
+        raise RuntimeError('FFmpeg failed (exit '+str(p.returncode)+')')
 def render(job,root,progress=lambda n:None):
     m=job['manifest'];w,h=m['width'],m['height'];parts=[]
     for i,s in enumerate(m['scenes']):
@@ -73,17 +75,24 @@ def main():
     for _ in range(1 if target else 5):
         job=api('claim',**({'id':target} if target else {})).get('job')
         if not job:return
+        stage='素材取得'
         try:
             with tempfile.TemporaryDirectory() as td:
                 root=Path(td)
                 for asset in job['assets']:
                     if not asset['url'].startswith('https://vnnvuxccazkdzwqjmntz.supabase.co/storage/v1/'):raise RuntimeError('不正な素材URL')
                     (root/asset['key']).write_bytes(request(asset['url']))
+                stage='映像・字幕・音声の結合'
                 output=render(job,root,lambda p:api('progress',id=job['id'],lease=job['lease'],progress=p))
+                stage='MP4保存 ('+str(round(output.stat().st_size/1048576,1))+'MB)'
                 request(job['outputUpload'],output.read_bytes(),{'Content-Type':'video/mp4'},'PUT')
                 api('done',id=job['id'],lease=job['lease'],progress=100)
             print('Video export completed.',flush=True)
-        except Exception:
-            api('failed',id=job['id'],lease=job['lease'],error='サーバーで動画を作れませんでした。素材と音声を確認して、もう一度書き出してください。')
+        except Exception as exc:
+            detail=type(exc).__name__
+            if isinstance(exc,urllib.error.HTTPError):detail+=' HTTP '+str(exc.code)
+            print('Video export error at '+stage+': '+detail,flush=True)
+            print(''.join(traceback.format_tb(exc.__traceback__)),flush=True)
+            api('failed',id=job['id'],lease=job['lease'],error=stage+'で失敗しました（'+detail+'）。素材は再生成せず再試行してください。')
             print('Video export failed; the app shows retry information.',flush=True)
 if __name__=='__main__':main()
