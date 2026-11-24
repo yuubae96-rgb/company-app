@@ -187,9 +187,10 @@ frame.addEventListener('load',()=>{
   let cancel=d.getElementById('cancelExportVideo');
   if(!cancel){cancel=d.createElement('button');cancel.id='cancelExportVideo';cancel.type='button';cancel.className='primary';cancel.textContent='■ 書き出しを停止';cancel.style.cssText='display:none;margin-top:8px;background:#8f1d24;color:#fff';btn.insertAdjacentElement('afterend',cancel)}
   cancel.onclick=()=>{exportCancelled=true;const status=d.getElementById('exportStatus');if(status)status.textContent='書き出しを停止しています…';try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(_){}};
+  const exportTimeout=(promise,ms,label)=>{let timer;return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(label+'がタイムアウトしました。再試行してください。')),ms)})]).finally(()=>clearTimeout(timer))};
   btn.onclick=async()=>{
     const status=d.getElementById('exportStatus'),bar=d.getElementById('exportBar'),dl=d.getElementById('downloadVideo');
-    try{if(typeof w.ensureVideoSubtitleSync!=='function')throw Error('字幕同期機能を読み込めませんでした。ページを再読込してください');await w.ensureVideoSubtitleSync()}catch(e){status.textContent='字幕同期が完了していません：'+e.message;return}
+    try{if(typeof w.ensureVideoSubtitleSync!=='function')throw Error('字幕同期機能を読み込めませんでした。ページを再読込してください');status.textContent='字幕同期を確認中…';await exportTimeout(w.ensureVideoSubtitleSync(),120000,'字幕同期')}catch(e){status.textContent='字幕同期が完了していません：'+e.message;return}
     const list=w.getScenesReady?.()||[];
     if(!list.length||list.some(s=>!s.image||!s.audio)){status.textContent='全シーンのAI画像とAIナレーションを先に作成してください。';return}
     if(!w.MediaRecorder){status.textContent='このブラウザは動画書き出しに対応していません。';return}
@@ -200,18 +201,17 @@ frame.addEventListener('load',()=>{
     try{
       let width,height;if(getAspect()==='9:16'){width=1080;height=1920}else{[width,height]=d.getElementById('exportSize').value.split('x').map(Number)}
       const canvas=d.createElement('canvas');canvas.width=width;canvas.height=height;
-      const ctx=canvas.getContext('2d');stream=canvas.captureStream(30);currentStream=stream;
+      const ctx=canvas.getContext('2d');if(!ctx||typeof canvas.captureStream!=='function')throw Error('このブラウザでは映像の記録ができません。');stream=canvas.captureStream(30);currentStream=stream;
       const AudioCtx=w.AudioContext||w.webkitAudioContext;audioCtx=new AudioCtx();currentAudioCtx=audioCtx;const dest=audioCtx.createMediaStreamDestination();dest.stream.getAudioTracks().forEach(t=>stream.addTrack(t));
       const candidates=['video/mp4;codecs="avc1.42E01E,mp4a.40.2"','video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
-      const mime=candidates.find(x=>w.MediaRecorder.isTypeSupported(x))||'';
-      rec=new w.MediaRecorder(stream,mime?{mimeType:mime,videoBitsPerSecond:getAspect()==='9:16'?8000000:(width>=1920?9000000:5000000)}:{videoBitsPerSecond:5000000});currentRecorder=rec;const chunks=[];
+      let mime='';let initError;for(const type of [...candidates,'']){try{if(type&&!w.MediaRecorder.isTypeSupported(type))continue;rec=new w.MediaRecorder(stream,{...(type?{mimeType:type}:{}),videoBitsPerSecond:getAspect()==='9:16'?8000000:(width>=1920?9000000:5000000)});mime=type;break}catch(e){initError=e}}if(!rec)throw initError||Error('対応する動画形式がありません');currentRecorder=rec;const chunks=[];
       rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};let recorderError=null;rec.addEventListener('error',e=>{recorderError=e.error||new Error('動画の記録中にエラーが発生しました。')});const stopped=new Promise(res=>rec.addEventListener('stop',res,{once:true}));rec.start(1000);
       for(let i=0;i<list.length&&!exportCancelled;i++){
-        const s=list[i],img=s.video?await w.loadMapSceneVideo(s.video):await w.loadImage(s.image);if(exportCancelled)break;
+        status.textContent=`シーン ${i+1}/${list.length} を書き出し中…`;const s=list[i],img=await exportTimeout(s.video?w.loadMapSceneVideo(s.video):w.loadImage(s.image),45000,'映像の読み込み');if(exportCancelled)break;
         // Schedule the complete decoded narration on the recording audio clock.
         // Media-element ended can precede delivery of its final samples to the recorder.
-        const response=await w.fetch(s.audio);if(!response.ok)throw new Error('音声を読み込めませんでした');
-        const buffer=await audioCtx.decodeAudioData(await response.arrayBuffer());if(exportCancelled)break;
+        const response=await exportTimeout(w.fetch(s.audio),45000,'音声の読み込み');if(!response.ok)throw new Error('音声を読み込めませんでした');
+        const buffer=await exportTimeout(audioCtx.decodeAudioData(await exportTimeout(response.arrayBuffer(),45000,'音声データの取得')),45000,'音声の変換');if(exportCancelled)break;
         // Keep actual silence flowing through the audio encoder after the final word.
         // Safari can otherwise omit its buffered final AAC samples when recording stops.
         const finalScene=i===list.length-1;
@@ -222,16 +222,18 @@ frame.addEventListener('load',()=>{
           for(let channel=0;channel<buffer.numberOfChannels;channel++)recordingBuffer.getChannelData(channel).set(buffer.getChannelData(channel));
         }
         const source=audioCtx.createBufferSource();source.buffer=recordingBuffer;source.connect(dest);
-        await audioCtx.resume();const start=audioCtx.currentTime+.05,endAudio=start+recordingBuffer.duration;
-        let ended=false;source.onended=()=>ended=true;currentAudio={pause(){try{source.stop()}catch(_){}}};source.start(start);if(s.video){img.currentTime=0;await img.play()}
+        await exportTimeout(audioCtx.resume(),10000,'音声の再生開始');const start=audioCtx.currentTime+.05,endAudio=start+recordingBuffer.duration;
+        let ended=false;source.onended=()=>ended=true;currentAudio={pause(){try{source.stop()}catch(_){}}};source.start(start);if(s.video){img.currentTime=0;await exportTimeout(img.play(),15000,'映像の再生開始')}
         const drain=Math.max(1,(audioCtx.baseLatency||0)+(audioCtx.outputLatency||0)+.25);
+        let lastClock=audioCtx.currentTime,lastAdvance=Date.now();
         while((!ended||audioCtx.currentTime<endAudio+drain)&&!exportCancelled){
+          if(recorderError)throw recorderError;if(rec.state==='inactive')throw Error('動画の記録が途中で停止しました');if(audioCtx.currentTime>lastClock){lastClock=audioCtx.currentTime;lastAdvance=Date.now()}else if(Date.now()-lastAdvance>15000)throw Error('音声処理が停止しました。画面を開いたまま再試行してください。');
           const elapsed=Math.max(0,Math.min(buffer.duration,audioCtx.currentTime-start));
           if(finalScene&&audioCtx.currentTime>=start+buffer.duration)status.textContent='最後の余韻を追加中…';
           if(s.video){if(Math.abs(img.currentTime-elapsed)>.15&&elapsed<img.duration-.05)img.currentTime=elapsed;ctx.drawImage(img,0,0,width,height)}else w.drawCover(ctx,img,width,height,elapsed,buffer.duration,i);w.drawVideoTitle(ctx,s.title,width,height);
           w.drawVideoSubtitle(ctx,w.subtitleAt(s.text,elapsed,buffer.duration,s.alignment||[]),width,height);
           bar.style.width=`${((i+elapsed/buffer.duration)/list.length)*100}%`;
-          await new Promise(r=>w.requestAnimationFrame(r));
+          await new Promise(r=>setTimeout(r,33));
         }
         if(exportCancelled)currentAudio.pause();currentAudio=null;
         source.disconnect();if(s.video){img.pause();img.src=""}
@@ -240,7 +242,7 @@ frame.addEventListener('load',()=>{
       // Waiting for requestData() first can stall Safari MP4 finalization.
       if(!exportCancelled)status.textContent='動画を保存できる形式に仕上げています…';
       if(rec.state!=='inactive')rec.stop();
-      await stopped;
+      await exportTimeout(stopped,30000,'動画の最終保存処理');
       if(recorderError)throw recorderError;
       if(exportCancelled){chunks.length=0;bar.style.width='0%';status.textContent='動画の書き出しを停止しました。修正後にもう一度書き出せます。';return}
       const actualType=rec.mimeType||mime||'video/webm',isMp4=/mp4/i.test(actualType),ext=isMp4?'mp4':'webm';const blob=new Blob(chunks,{type:actualType});if(!blob.size)throw new Error('動画データを取得できませんでした。');lastExportUrl=URL.createObjectURL(blob);
